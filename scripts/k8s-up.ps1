@@ -69,8 +69,22 @@ kubectl label node "$cluster-worker" ingress-ready=true --overwrite | Out-Null; 
 kubectl apply -f (Join-Path $k8s "ingress-nginx\deploy.yaml"); Check
 kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s; Check
 
-Step "Applying MiniCloud manifests"
-kubectl apply -k (Join-Path $k8s "base"); Check
+Step "Installing Argo CD (GitOps)"
+# Server-side apply: Argo CD's CRDs are too large for client-side apply's annotation.
+kubectl apply --server-side --force-conflicts -k (Join-Path $k8s "argocd\install"); Check
+foreach ($d in "argocd-server", "argocd-repo-server", "argocd-redis") {
+    kubectl -n argocd rollout status deployment/$d --timeout=300s; Check
+}
+kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s; Check
+
+Step "Creating the app Secret (kept out of Git)"
+kubectl create namespace minicloud --dry-run=client -o yaml | kubectl apply -f - | Out-Null; Check
+kubectl -n minicloud create secret generic minicloud-secrets --from-env-file=$secrets --dry-run=client -o yaml | kubectl apply -f - | Out-Null; Check
+
+Step "Handing MiniCloud to Argo CD (it deploys deploy/k8s/base from GitHub)"
+kubectl apply -f (Join-Path $k8s "argocd\minicloud-app.yaml"); Check
+kubectl -n argocd wait application/minicloud --for=jsonpath='{.status.health.status}'=Healthy --timeout=300s; Check
+
 
 if (-not $SkipBuild) {
     # Same tag, new image: restart so pods pick up what was just loaded.
@@ -86,4 +100,7 @@ kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s; 
 
 Step "Ready"
 kubectl -n minicloud get pods -o wide
-Write-Host "`nDashboard: http://127.0.0.1:8090  (via Kubernetes Ingress)" -ForegroundColor Green
+Write-Host "`nDashboard: http://127.0.0.1:8090" -ForegroundColor Green
+Write-Host "Argo CD:   http://argocd.localhost:8090   (user: admin)" -ForegroundColor Green
+$pw = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}'
+if ($pw) { Write-Host ("Argo CD password: " + [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($pw))) }

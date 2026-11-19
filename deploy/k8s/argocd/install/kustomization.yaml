@@ -1,0 +1,32 @@
+# Argo CD, vendored from the upstream release (version: see image tags in install.yaml),
+# trimmed for an 8 GB laptop.
+namespace: argocd
+resources:
+  - namespace.yaml
+  - install.yaml
+  - argocd-ingress.yaml
+patches:
+  # Plain HTTP behind the Ingress. Local lab only: real setups terminate TLS.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: argocd-cmd-params-cm
+      data:
+        server.insecure: "true"
+  # Not needed here (no SSO, notifications or ApplicationSets): turn off to save RAM.
+  - target: { kind: Deployment, name: argocd-dex-server }
+    patch: |-
+      - op: add
+        path: /spec/replicas
+        value: 0
+  - target: { kind: Deployment, name: argocd-notifications-controller }
+    patch: |-
+      - op: add
+        path: /spec/replicas
+        value: 0
+  - target: { kind: Deployment, name: argocd-applicationset-controller }
+    patch: |-
+      - op: add
+        path: /spec/replicas
+        value: 0
