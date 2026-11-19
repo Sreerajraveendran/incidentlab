@@ -1,0 +1,17 @@
+namespace: minicloud
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - redis.yaml
+  - app.yaml
+  - web.yaml
+  - mgmt-api.yaml
+  - loadgen.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: postgres-init
+    files: [01-databases.sh=postgres-init.sh]
+secretGenerator:
+  # secrets.env is not in Git: copy secrets.env.example and change the values.
+  - name: minicloud-secrets
+    envs: [secrets.env]

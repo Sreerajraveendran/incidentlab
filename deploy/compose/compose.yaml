@@ -1,0 +1,135 @@
+name: minicloud
+
+# Stage A: Docker Compose load-balancing lab.
+# Browser -> NGINX (127.0.0.1:MINICLOUD_PORT, default 8088) -> app-1/2/3 -> Redis / Postgres.
+# Do not run this and the kind cluster at the same time on an 8 GB machine.
+
+x-app: &app
+  build:
+    context: ../../app
+    args:
+      APP_VERSION: ${APP_VERSION:-dev}
+      GIT_SHA: ${GIT_SHA:-unknown}
+  image: minicloud-app:${APP_VERSION:-dev}
+  environment:
+    DATABASE_URL: postgresql://app_user:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/app_db
+    DB_POOL_MAX: "4"
+    REDIS_URL: redis://redis:6379/0
+    API_TOKEN: ${API_TOKEN:?set API_TOKEN in .env}
+    READINESS_CHECKS_DB: ${READINESS_CHECKS_DB:-false}
+    # Lets the dashboard force cache hits/misses, DB errors and slow network.
+    # A lab-only switch: never enable it on anything real.
+    SIMULATION_ENABLED: ${SIMULATION_ENABLED:-true}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    # Started, not healthy: the app must keep working (from the DB) when Redis is down.
+    redis:
+      condition: service_started
+  networks: [edge, internal]
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        cpus: "0.50"
+        memory: 256M
+
+services:
+  app-1:
+    <<: *app
+    hostname: app-1
+  app-2:
+    <<: *app
+    hostname: app-2
+  app-3:
+    <<: *app
+    hostname: app-3
+
+  web:
+    build: ../../web
+    image: minicloud-web:${APP_VERSION:-dev}
+    networks: [edge]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+  nginx:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    # Bound to localhost only: Docker Desktop would otherwise publish on every interface.
+    ports:
+      - "127.0.0.1:${MINICLOUD_PORT:-8088}:80"
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [edge]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      PLATFORM_DB_PASSWORD: ${PLATFORM_DB_PASSWORD:?set PLATFORM_DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    # No ports: Postgres is reachable only on the internal network.
+    networks: [internal]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+  redis:
+    image: redis:7.4-alpine
+    # A pure cache: no persistence, evict least-recently-used keys at 32 MB.
+    command: ["redis-server", "--maxmemory", "32mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    networks: [internal]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+networks:
+  edge: {}
+  # internal: no route to the outside world, and NGINX/web are not attached.
+  internal:
+    internal: true
+
+volumes:
+  pgdata: {}

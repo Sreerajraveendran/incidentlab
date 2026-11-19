@@ -1,0 +1,35 @@
+# Load generator. Off by default (0 replicas). The dashboard sets the replica
+# count per level (Off 0, Light 2, Medium 3, Heavy 6); each pod sends RATE req/s.
+# Traffic goes through the gateway, so it takes the same path as real users.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minicloud-loadgen
+spec:
+  replicas: 0
+  selector:
+    matchLabels: { app: minicloud-loadgen }
+  template:
+    metadata:
+      labels: { app: minicloud-loadgen }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: loadgen
+          image: minicloud-app:dev
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.loadgen"]
+          env:
+            - {
+                name: TARGET_URL,
+                value: "http://ingress-nginx-controller.ingress-nginx.svc.cluster.local/api/v1/cpu?ms=50",
+              }
+            - { name: RATE, value: "2" }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }

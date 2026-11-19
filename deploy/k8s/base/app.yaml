@@ -1,0 +1,107 @@
+# The sample app: the workload the HPA scales.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minicloud-app
+  labels: { app: minicloud-app }
+spec:
+  # No `replicas` here: the HPA owns the count, and re-applying must not reset it.
+  selector:
+    matchLabels: { app: minicloud-app }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: minicloud-app }
+    spec:
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: minicloud-app:dev
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8000 }]
+          env:
+            - name: INSTANCE_ID # the pod's own name, via the downward API
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: APP_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: APP_DB_PASSWORD } }
+            - { name: DATABASE_URL, value: "postgresql://app_user:$(APP_DB_PASSWORD)@postgres:5432/app_db" }
+            - { name: DB_POOL_MAX, value: "2" }
+            - { name: REDIS_URL, value: "redis://redis:6379/0" }
+            - name: API_TOKEN
+              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: API_TOKEN } }
+            - { name: SIMULATION_ENABLED, value: "true" }
+          # CPU percentages in the HPA are measured against this request.
+          resources:
+            requests: { cpu: 100m, memory: 96Mi }
+            limits: { cpu: 250m, memory: 192Mi }
+          startupProbe:
+            httpGet: { path: /health/live, port: http }
+            # uvicorn needs ~1-2 s to listen; probing earlier only logs "connection refused".
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 10
+          lifecycle:
+            # Give the gateway time to stop routing here before shutdown starts.
+            preStop:
+              exec: { command: ["sleep", "5"] }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+# Regular Service: one stable virtual IP, balanced per connection by kube-proxy.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minicloud-app
+spec:
+  selector: { app: minicloud-app }
+  ports: [{ name: http, port: 8000, targetPort: http }]
+---
+# Headless Service: DNS returns each ready pod's IP; the gateway balances per request.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minicloud-app-pods
+spec:
+  clusterIP: None
+  selector: { app: minicloud-app }
+  ports: [{ name: http, port: 8000, targetPort: http }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: minicloud-app
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: minicloud-app }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 50 }
+  behavior:
+    scaleDown:
+      # Demo setting: the Kubernetes default is 300 s. Shorter so a scale-down
+      # can be watched about a minute after the load stops.
+      stabilizationWindowSeconds: 60
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minicloud-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: minicloud-app }

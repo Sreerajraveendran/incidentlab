@@ -1,0 +1,96 @@
+# Management API with least-privilege access: exactly what the visualizer needs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minicloud-mgmt-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: minicloud-mgmt-api
+rules:
+  - apiGroups: [""]
+    resources: [pods, events]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
+  # Scale the load generator only, nothing else.
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    resourceNames: [minicloud-loadgen]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: minicloud-mgmt-api
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: minicloud-mgmt-api }
+subjects:
+  - { kind: ServiceAccount, name: minicloud-mgmt-api, namespace: minicloud }
+---
+# Nodes are cluster-scoped, so reading them needs a (read-only) ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minicloud-mgmt-api-nodes
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minicloud-mgmt-api-nodes
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: minicloud-mgmt-api-nodes }
+subjects:
+  - { kind: ServiceAccount, name: minicloud-mgmt-api, namespace: minicloud }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minicloud-mgmt-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: minicloud-mgmt-api }
+  template:
+    metadata:
+      labels: { app: minicloud-mgmt-api }
+    spec:
+      serviceAccountName: minicloud-mgmt-api
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api
+          image: minicloud-mgmt:dev
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8000 }]
+          env:
+            - { name: TARGET_NAMESPACE, value: minicloud }
+            - name: API_TOKEN
+              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: API_TOKEN } }
+          readinessProbe:
+            httpGet: { path: /api/mgmt/health, port: http }
+            # The default 1 s timeout expired when the node's CPU was saturated by a load test.
+            timeoutSeconds: 3
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 25m, memory: 96Mi }
+            limits: { cpu: 250m, memory: 192Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minicloud-mgmt-api
+spec:
+  selector: { app: minicloud-mgmt-api }
+  ports: [{ name: http, port: 8000, targetPort: http }]

@@ -1,0 +1,14 @@
+# metrics-server v0.7.2, vendored from the upstream release so setup is reproducible.
+resources:
+  - components.yaml
+patches:
+  # kind's kubelets use self-signed certificates; without this metrics-server
+  # cannot scrape them and the HPA shows <unknown> CPU.
+  - target:
+      kind: Deployment
+      name: metrics-server
+      namespace: kube-system
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --kubelet-insecure-tls
