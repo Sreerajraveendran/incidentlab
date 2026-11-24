@@ -83,6 +83,9 @@ kubectl -n minicloud create secret generic minicloud-secrets --from-env-file=$se
 
 Step "Handing MiniCloud to Argo CD (it deploys deploy/k8s/base from GitHub)"
 kubectl apply -f (Join-Path $k8s "argocd\minicloud-app.yaml"); Check
+# Synced first: an app that failed to build has no resources and still reports
+# Healthy. If this times out, see: kubectl -n argocd get application minicloud -o yaml
+kubectl -n argocd wait application/minicloud --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s; Check
 kubectl -n argocd wait application/minicloud --for=jsonpath='{.status.health.status}'=Healthy --timeout=300s; Check
 
 
