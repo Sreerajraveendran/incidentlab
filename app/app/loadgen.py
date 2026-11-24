@@ -66,7 +66,10 @@ def main() -> None:
             with lock:
                 ok, failed, skipped = counts["ok"], counts["failed"], counts["skipped"]
                 counts.update(ok=0, failed=0, skipped=0)
-            print(f"loadgen: last {REPORT_EVERY_S}s ok={ok} failed={failed} skipped={skipped}", flush=True)
+            print(
+                f"loadgen: last {REPORT_EVERY_S}s ok={ok} failed={failed} skipped={skipped}",
+                flush=True,
+            )
             last_report = now
 
 
