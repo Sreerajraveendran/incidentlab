@@ -11,7 +11,6 @@ resources:
 configMapGenerator:
   - name: postgres-init
     files: [01-databases.sh=postgres-init.sh]
-secretGenerator:
-  # secrets.env is not in Git: copy secrets.env.example and change the values.
-  - name: minicloud-secrets
-    envs: [secrets.env]
+# No secretGenerator: Argo CD builds this folder from GitHub, where secrets.env
+# (git-ignored) doesn't exist. scripts/k8s-up.ps1 creates the Secret
+# "minicloud-secrets" from deploy/k8s/base/secrets.env instead.
