@@ -182,13 +182,15 @@ Repair-ClusterNetwork
 
 Step "Installing metrics-server (feeds CPU numbers to the HPA)"
 kubectl apply -k (Join-Path $k8s "metrics-server"); Check
-kubectl -n kube-system rollout status deployment/metrics-server --timeout=180s; Check
+kubectl -n kube-system rollout status deployment/metrics-server --timeout=300s; Check
 
 Step "Installing ingress-nginx (Ingress controller)"
 # The controller only runs on nodes with this label (see deploy.yaml).
 kubectl label node "$cluster-worker" ingress-ready=true --overwrite | Out-Null; Check
 kubectl apply -f (Join-Path $k8s "ingress-nginx\deploy.yaml"); Check
-kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s; Check
+# On a new cluster the controller waits for its certificate, then pulls a
+# ~100 MB image: allow 5 minutes.
+kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s; Check
 # Its admission webhook validates every Ingress. It only works once these jobs
 # have created and installed its certificate.
 kubectl -n ingress-nginx wait --for=condition=complete job/ingress-nginx-admission-create job/ingress-nginx-admission-patch --timeout=120s; Check
