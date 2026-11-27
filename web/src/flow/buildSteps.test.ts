@@ -91,6 +91,16 @@ describe("buildSteps", () => {
     expect(buildSteps(r)[1].title).toMatch(/retried/);
   });
 
+  it("ingress-nginx: no gateway headers, no 'undefined' anywhere", () => {
+    const r = run();
+    for (const h of ["x-upstream", "x-gateway-connect-time", "x-gateway-header-time"]) delete r.response!.headers[h];
+    const s = buildSteps(r);
+    expect(s[1].title).toBe("Gateway routes to app-2 (round-robin)");
+    expect(s[1].log).toBe("gateway → app-2");
+    expect(s[1].detail.note).toMatch(/ingress-nginx/);
+    expect(JSON.stringify(s)).not.toContain("undefined");
+  });
+
   it("no backend: the gateway answers by itself", () => {
     const r = run({ trace: null });
     delete r.response!.headers["x-pod-name"];

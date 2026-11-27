@@ -138,16 +138,24 @@ export function buildSteps(run: FlowRun): FlowStep[] {
     status: retried ? "error" : "ok",
     durationMs: ms(header(run, "x-gateway-connect-time")),
     simulated: false,
-    detail: {
-      algorithm: "round-robin",
-      chosen_instance: instance,
-      upstream_address: upstream,
-      upstream_status: upstreamStatus,
-      ...(retried ? { why_retried: "the first instance could not be reached, so NGINX tried the next one" } : {}),
-      connect_ms: ms(header(run, "x-gateway-connect-time")),
-      request_id: header(run, "x-gateway-request-id"),
-    },
-    log: `gateway → ${instance} · upstream ${upstream}${retried ? " (retry)" : ""}`,
+    // The Compose gateway reports what it did in X-Upstream / X-Gateway-* headers.
+    // ingress-nginx (Kubernetes) sends none of them, so those fields are left out
+    // instead of being shown as empty or "undefined".
+    detail: upstream
+      ? {
+          algorithm: "round-robin",
+          chosen_instance: instance,
+          upstream_address: upstream,
+          upstream_status: upstreamStatus,
+          ...(retried ? { why_retried: "the first instance could not be reached, so NGINX tried the next one" } : {}),
+          connect_ms: ms(header(run, "x-gateway-connect-time")),
+          request_id: header(run, "x-gateway-request-id"),
+        }
+      : {
+          chosen_instance: instance,
+          note: "ingress-nginx doesn't report its upstream or timings in response headers",
+        },
+    log: `gateway → ${instance}${upstream ? ` · upstream ${upstream}` : ""}${retried ? " (retry)" : ""}`,
     phase: "request",
   });
 

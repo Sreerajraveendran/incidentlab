@@ -7,7 +7,10 @@ RUN /venv/bin/pip install -r requirements.txt
 
 FROM python:3.13-slim AS runtime
 ENV PATH=/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app
+# OS security fixes released after the base image was built (CI fails on
+# critical CVEs), then the non-root user.
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app
 COPY --from=build /venv /venv
 WORKDIR /srv
 COPY app ./app
