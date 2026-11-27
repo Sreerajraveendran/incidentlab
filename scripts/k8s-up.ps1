@@ -37,13 +37,21 @@ function Wait-ApiServer([int]$seconds = 120) {
 # anything that crosses nodes.
 function Test-PodRoutes {
     $ok = $true
-    $cidrs = kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}={.spec.podCIDR}{"\n"}{end}'
+    # Parse JSON instead of a jsonpath with {"\n"}: Windows PowerShell 5.1 strips
+    # the inner quotes when calling kubectl, the jsonpath fails to parse, and an
+    # empty list would make this check pass without testing anything.
+    $items = (kubectl get nodes -o json | Out-String | ConvertFrom-Json).items
+    $cidrs = @($items | Where-Object { $_.spec.podCIDR } |
+        ForEach-Object { [pscustomobject]@{ Node = $_.metadata.name; Cidr = $_.spec.podCIDR } })
+    if ($cidrs.Count -lt $nodes.Count) {
+        Write-Host "  could not read every node's pod range (got $($cidrs.Count) of $($nodes.Count))"
+        return $false
+    }
     foreach ($node in $nodes) {
         $routes = docker exec $node ip route 2>$null
-        foreach ($line in $cidrs) {
-            if (-not $line) { continue }
-            $other, $cidr = $line -split "="
-            if ($other -eq $node -or -not $cidr) { continue }
+        foreach ($entry in $cidrs) {
+            $other = $entry.Node; $cidr = $entry.Cidr
+            if ($other -eq $node) { continue }
             if (-not ($routes | Select-String -SimpleMatch "$cidr via")) {
                 Write-Host "  missing route on ${node}: $cidr (pods on $other)"
                 $ok = $false
@@ -67,6 +75,24 @@ function Test-PodDns {
     return $false
 }
 
+# Docker can give the node containers different IPs after a restart (they can
+# even swap). kind updates the API server's address but not the control-plane
+# kubelet's kubeconfig, which keeps the old IP: the node goes NotReady and
+# kindnet can't add routes. Point it at the node's hostname instead (always in
+# the API server certificate, and resolved by /etc/hosts to the current IP).
+function Repair-ControlPlaneKubelet {
+    $cp = $nodes[0]
+    $server = docker exec $cp grep "server:" /etc/kubernetes/kubelet.conf 2>$null
+    if ($server -match "https://(\d+\.\d+\.\d+\.\d+):6443") {
+        $current = docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" $cp
+        if ($Matches[1] -ne $current) {
+            Write-Warning "The control-plane kubelet uses old IP $($Matches[1]) (node is now $current): repointing it to ${cp}."
+            docker exec $cp sed -i "s#server: https://[0-9.]*:6443#server: https://${cp}:6443#" /etc/kubernetes/kubelet.conf; Check
+            docker exec $cp systemctl restart kubelet; Check
+        }
+    }
+}
+
 # Restarting the network components makes them rebuild routes and connection
 # state. A workaround: the root cause of kind losing this state is unknown.
 function Repair-ClusterNetwork {
@@ -83,7 +109,9 @@ function Repair-ClusterNetwork {
         kubectl -n kube-system rollout status daemonset/kindnet --timeout=120s | Out-Null
         kubectl -n kube-system rollout status daemonset/kube-proxy --timeout=120s | Out-Null
         kubectl -n kube-system rollout status deployment/coredns --timeout=120s | Out-Null
-        Start-Sleep -Seconds 5
+        # kindnet adds the routes a few seconds after its pod starts.
+        $deadline = (Get-Date).AddSeconds(60)
+        while (-not (Test-PodRoutes 6> $null) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
     }
     if (-not (Test-PodRoutes) -or (Test-PodDns) -eq $false) {
         throw "The cluster network is still broken. Recreate the cluster: scripts\k8s-down.ps1, then run this script again."
@@ -128,6 +156,8 @@ kubectl config use-context "kind-$cluster" | Out-Null; Check
 Step "Waiting for the Kubernetes API"
 Wait-ApiServer 120
 Write-Host "API ready."
+Repair-ControlPlaneKubelet
+kubectl wait node --all --for=condition=Ready --timeout=180s; Check
 
 $secrets = Join-Path $k8s "base\secrets.env"
 if (-not (Test-Path $secrets)) {
