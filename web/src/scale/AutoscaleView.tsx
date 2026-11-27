@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "./Chart";
 import { describe, formula, LOOP } from "./derive";
+import { useToken } from "../token";
 import type { Pod, Sample, Snapshot } from "./types";
 
 const POLL_MS = 2000;
 const HISTORY_S = 300;
 const GONE_MS = 4000; // how long a removed pod stays on screen, fading out
-const TOKEN_KEY = "incidentlab.apiToken";
 // Requests/s per level and the pod count to expect. Estimates from a measured
 // ~32m CPU per req/s against the HPA's 50m-per-pod target.
 const LEVELS = [
@@ -34,13 +34,6 @@ async function describeFailure(res: Response): Promise<string> {
   return `HTTP ${res.status}`;
 }
 
-function readToken(): string {
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
 
 const ago = (iso: string | null, now: number) => {
   if (!iso) return "";
@@ -80,7 +73,7 @@ export default function AutoscaleView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [gone, setGone] = useState<(Pod & { gone: true; at: number })[]>([]);
-  const [token, setToken] = useState(readToken);
+  const [token, setToken] = useToken();
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const belowSince = useRef<number | null>(null);
@@ -154,13 +147,6 @@ export default function AutoscaleView() {
     };
   }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(TOKEN_KEY, token);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [token]);
 
   async function setLoad(level: number) {
     setBusy(true);
