@@ -29,11 +29,11 @@ spec:
             - { name: POSTGRES_USER, value: postgres }
             - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
             - name: POSTGRES_PASSWORD
-              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: POSTGRES_PASSWORD } }
+              valueFrom: { secretKeyRef: { name: incidentlab-secrets, key: POSTGRES_PASSWORD } }
             - name: APP_DB_PASSWORD
-              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: APP_DB_PASSWORD } }
+              valueFrom: { secretKeyRef: { name: incidentlab-secrets, key: APP_DB_PASSWORD } }
             - name: PLATFORM_DB_PASSWORD
-              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: PLATFORM_DB_PASSWORD } }
+              valueFrom: { secretKeyRef: { name: incidentlab-secrets, key: PLATFORM_DB_PASSWORD } }
           ports: [{ containerPort: 5432 }]
           readinessProbe:
             exec: { command: ["pg_isready", "-U", "postgres", "-d", "app_db"] }

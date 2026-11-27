@@ -1,6 +1,6 @@
 """Load generator: sends RATE requests per second to TARGET_URL.
 
-Runs as the minicloud-loadgen Deployment; the dashboard sets its replica count
+Runs as the incidentlab-loadgen Deployment; the dashboard sets its replica count
 to choose a load level, so total load = replicas x RATE.
 
 Open model: requests start on a fixed schedule whether or not earlier ones have

@@ -13,7 +13,7 @@ def test_memory_quantities():
     assert cluster.mem_mib("64Mi") == 64
 
 
-def pod(name, phase="Running", ready=True, deleting=False, waiting=None, node="minicloud-worker"):
+def pod(name, phase="Running", ready=True, deleting=False, waiting=None, node="incidentlab-worker"):
     conditions = [{"type": "PodScheduled", "status": "True", "lastTransitionTime": "t0"}]
     if ready:
         conditions.append({"type": "Ready", "status": "True", "lastTransitionTime": "t2"})
@@ -78,7 +78,7 @@ def test_usage_sums_containers():
 
 def test_hpa_shape():
     hpa = {
-        "metadata": {"name": "minicloud-app"},
+        "metadata": {"name": "incidentlab-app"},
         "spec": {
             "minReplicas": 2,
             "maxReplicas": 6,

@@ -1,7 +1,7 @@
-name: minicloud
+name: incidentlab
 
 # Stage A: Docker Compose load-balancing lab.
-# Browser -> NGINX (127.0.0.1:MINICLOUD_PORT, default 8088) -> app-1/2/3 -> Redis / Postgres.
+# Browser -> NGINX (127.0.0.1:INCIDENTLAB_PORT, default 8088) -> app-1/2/3 -> Redis / Postgres.
 # Do not run this and the kind cluster at the same time on an 8 GB machine.
 
 x-app: &app
@@ -10,7 +10,7 @@ x-app: &app
     args:
       APP_VERSION: ${APP_VERSION:-dev}
       GIT_SHA: ${GIT_SHA:-unknown}
-  image: minicloud-app:${APP_VERSION:-dev}
+  image: incidentlab-app:${APP_VERSION:-dev}
   environment:
     DATABASE_URL: postgresql://app_user:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/app_db
     DB_POOL_MAX: "4"
@@ -47,7 +47,7 @@ services:
 
   web:
     build: ../../web
-    image: minicloud-web:${APP_VERSION:-dev}
+    image: incidentlab-web:${APP_VERSION:-dev}
     networks: [edge]
     restart: unless-stopped
     healthcheck:
@@ -69,7 +69,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     # Bound to localhost only: Docker Desktop would otherwise publish on every interface.
     ports:
-      - "127.0.0.1:${MINICLOUD_PORT:-8088}:8080"
+      - "127.0.0.1:${INCIDENTLAB_PORT:-8088}:8080"
     depends_on:
       web:
         condition: service_healthy

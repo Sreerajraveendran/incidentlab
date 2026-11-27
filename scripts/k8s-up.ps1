@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Create (or update) the MiniCloud kind cluster and deploy everything:
+  Create (or update) the IncidentLab kind cluster and deploy everything:
   metrics-server, ingress-nginx, Argo CD, and the app (deployed by Argo CD from GitHub).
   Stops the Compose stack first: both together do not fit in 8 GB.
   Safe to re-run, including after Docker Desktop restarts: it starts stopped
@@ -15,7 +15,7 @@ $ErrorActionPreference = "Continue"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $kind = Join-Path $root ".tools\kind.exe"
 if (-not (Test-Path $kind)) { $kind = "kind" }
-$cluster = "minicloud"
+$cluster = "incidentlab"
 $k8s = Join-Path $root "deploy\k8s"
 $nodes = @("$cluster-control-plane", "$cluster-worker")
 
@@ -68,7 +68,7 @@ function Test-PodRoutes {
 function Test-PodDns {
     kubectl delete pod netcheck --ignore-not-found --wait=true *> $null
     $out = kubectl run netcheck --rm -i --restart=Never --quiet `
-        --image=minicloud-app:dev --image-pull-policy=Never --pod-running-timeout=60s `
+        --image=incidentlab-app:dev --image-pull-policy=Never --pod-running-timeout=60s `
         --command -- python -c "import socket; socket.gethostbyname('kubernetes.default.svc.cluster.local'); print('dns-ok')" 2>&1
     if ($out -match "dns-ok") { return $true }
     if ($out -match "ErrImageNeverPull|not found|ImagePull") { return $null }
@@ -136,7 +136,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Docker is running."
 
 Step "Stopping the Compose stack (if running)"
-docker compose -p minicloud stop *> $null
+docker compose -p incidentlab stop *> $null
 
 if (-not ((& $kind get clusters) -contains $cluster)) {
     Step "Creating kind cluster '$cluster' (1 control-plane + 1 worker)"
@@ -168,13 +168,13 @@ if (-not (Test-Path $secrets)) {
 if (-not $SkipBuild) {
     Step "Building images"
     $sha = (git -C $root rev-parse --short HEAD 2>$null); if (-not $sha) { $sha = "unknown" }
-    docker build -t minicloud-app:dev --build-arg GIT_SHA=$sha (Join-Path $root "app"); Check
-    docker build -t minicloud-web:dev (Join-Path $root "web"); Check
-    docker build -t minicloud-mgmt:dev (Join-Path $root "mgmt-api"); Check
+    docker build -t incidentlab-app:dev --build-arg GIT_SHA=$sha (Join-Path $root "app"); Check
+    docker build -t incidentlab-web:dev (Join-Path $root "web"); Check
+    docker build -t incidentlab-api:dev (Join-Path $root "lab-api"); Check
 
     # kind nodes run containerd, not Docker: they can't see local images until loaded.
     Step "Loading images into the kind nodes"
-    & $kind load docker-image minicloud-app:dev minicloud-web:dev minicloud-mgmt:dev --name $cluster; Check
+    & $kind load docker-image incidentlab-app:dev incidentlab-web:dev incidentlab-api:dev --name $cluster; Check
 }
 
 Step "Checking the cluster network (routes between nodes, DNS)"
@@ -204,31 +204,31 @@ kubectl -n argocd rollout status statefulset/argocd-application-controller --tim
 Step "Creating the app Secret (kept out of Git)"
 # Create the namespace only if it's missing: Argo CD owns it (with its Pod
 # Security labels), and re-applying a bare namespace would strip those labels.
-kubectl get namespace minicloud *> $null
-if ($LASTEXITCODE -ne 0) { kubectl create namespace minicloud | Out-Null; Check }
-kubectl -n minicloud create secret generic minicloud-secrets --from-env-file=$secrets --dry-run=client -o yaml | kubectl apply -f - | Out-Null; Check
+kubectl get namespace incidentlab *> $null
+if ($LASTEXITCODE -ne 0) { kubectl create namespace incidentlab | Out-Null; Check }
+kubectl -n incidentlab create secret generic incidentlab-secrets --from-env-file=$secrets --dry-run=client -o yaml | kubectl apply -f - | Out-Null; Check
 
-Step "Handing MiniCloud to Argo CD (it deploys deploy/k8s/base from GitHub)"
-kubectl apply -f (Join-Path $k8s "argocd\minicloud-app.yaml"); Check
+Step "Handing IncidentLab to Argo CD (it deploys deploy/k8s/base from GitHub)"
+kubectl apply -f (Join-Path $k8s "argocd\incidentlab-app.yaml"); Check
 # Synced first: an app that failed to build has no resources and still reports
-# Healthy. If this times out, see: kubectl -n argocd get application minicloud -o yaml
-kubectl -n argocd wait application/minicloud --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s; Check
-kubectl -n argocd wait application/minicloud --for=jsonpath='{.status.health.status}'=Healthy --timeout=300s; Check
+# Healthy. If this times out, see: kubectl -n argocd get application incidentlab -o yaml
+kubectl -n argocd wait application/incidentlab --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s; Check
+kubectl -n argocd wait application/incidentlab --for=jsonpath='{.status.health.status}'=Healthy --timeout=300s; Check
 
 if (-not $SkipBuild) {
     # Same tag, new image: restart so pods pick up what was just loaded.
     # (The load generator uses the app image too.)
-    kubectl -n minicloud rollout restart deployment minicloud-app minicloud-web minicloud-mgmt-api minicloud-loadgen | Out-Null; Check
+    kubectl -n incidentlab rollout restart deployment incidentlab-app incidentlab-web incidentlab-api incidentlab-loadgen | Out-Null; Check
 }
 
 Step "Waiting for workloads"
-kubectl -n minicloud rollout status statefulset/postgres --timeout=180s; Check
-foreach ($d in "redis", "minicloud-app", "minicloud-web", "minicloud-mgmt-api") {
-    kubectl -n minicloud rollout status deployment/$d --timeout=180s; Check
+kubectl -n incidentlab rollout status statefulset/postgres --timeout=180s; Check
+foreach ($d in "redis", "incidentlab-app", "incidentlab-web", "incidentlab-api") {
+    kubectl -n incidentlab rollout status deployment/$d --timeout=180s; Check
 }
 
 Step "Ready"
-kubectl -n minicloud get pods -o wide
+kubectl -n incidentlab get pods -o wide
 Write-Host "`nDashboard: http://127.0.0.1:8090" -ForegroundColor Green
 Write-Host "Argo CD:   http://argocd.localhost:8090   (user: admin)" -ForegroundColor Green
 Write-Host "Argo CD password (not printed, so it stays out of logs):"

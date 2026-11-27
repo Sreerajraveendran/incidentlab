@@ -1,13 +1,13 @@
-# Management API with least-privilege access: exactly what the visualizer needs.
+# Lab API with least-privilege access: exactly what the visualizer needs.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: minicloud-mgmt-api
+  name: incidentlab-api
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: minicloud-mgmt-api
+  name: incidentlab-api
 rules:
   - apiGroups: [""]
     resources: [pods, events]
@@ -21,22 +21,22 @@ rules:
   # Scale the load generator only, nothing else.
   - apiGroups: [apps]
     resources: [deployments/scale]
-    resourceNames: [minicloud-loadgen]
+    resourceNames: [incidentlab-loadgen]
     verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: minicloud-mgmt-api
-roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: minicloud-mgmt-api }
+  name: incidentlab-api
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: incidentlab-api }
 subjects:
-  - { kind: ServiceAccount, name: minicloud-mgmt-api, namespace: minicloud }
+  - { kind: ServiceAccount, name: incidentlab-api, namespace: incidentlab }
 ---
 # Nodes are cluster-scoped, so reading them needs a (read-only) ClusterRole.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: minicloud-mgmt-api-nodes
+  name: incidentlab-api-nodes
 rules:
   - apiGroups: [""]
     resources: [nodes]
@@ -45,38 +45,38 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: minicloud-mgmt-api-nodes
-roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: minicloud-mgmt-api-nodes }
+  name: incidentlab-api-nodes
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: incidentlab-api-nodes }
 subjects:
-  - { kind: ServiceAccount, name: minicloud-mgmt-api, namespace: minicloud }
+  - { kind: ServiceAccount, name: incidentlab-api, namespace: incidentlab }
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: minicloud-mgmt-api
+  name: incidentlab-api
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: minicloud-mgmt-api }
+    matchLabels: { app: incidentlab-api }
   template:
     metadata:
-      labels: { app: minicloud-mgmt-api }
+      labels: { app: incidentlab-api }
     spec:
-      serviceAccountName: minicloud-mgmt-api
+      serviceAccountName: incidentlab-api
       securityContext:
         runAsNonRoot: true
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: api
-          image: minicloud-mgmt:dev
+          image: incidentlab-api:dev
           imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 8000 }]
           env:
-            - { name: TARGET_NAMESPACE, value: minicloud }
+            - { name: TARGET_NAMESPACE, value: incidentlab }
             - name: API_TOKEN
-              valueFrom: { secretKeyRef: { name: minicloud-secrets, key: API_TOKEN } }
+              valueFrom: { secretKeyRef: { name: incidentlab-secrets, key: API_TOKEN } }
           readinessProbe:
-            httpGet: { path: /api/mgmt/health, port: http }
+            httpGet: { path: /api/lab/health, port: http }
             # The default 1 s timeout expired when the node's CPU was saturated by a load test.
             timeoutSeconds: 3
             periodSeconds: 10
@@ -90,7 +90,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: minicloud-mgmt-api
+  name: incidentlab-api
 spec:
-  selector: { app: minicloud-mgmt-api }
+  selector: { app: incidentlab-api }
   ports: [{ name: http, port: 8000, targetPort: http }]

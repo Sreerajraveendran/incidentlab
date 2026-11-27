@@ -1,4 +1,4 @@
-"""MiniCloud management API.
+"""IncidentLab Lab API.
 
 The only component with Kubernetes permissions, and only these: read pods,
 events, the HPA and pod metrics in one namespace, read nodes, and scale the
@@ -20,7 +20,7 @@ from app import cluster
 API_TOKEN = os.getenv("API_TOKEN")
 MAX_LOAD_LEVEL = len(cluster.LEVEL_PODS) - 1
 
-log = logging.getLogger("mgmt-api")
+log = logging.getLogger("lab-api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
@@ -42,15 +42,15 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="MiniCloud management API", lifespan=lifespan)
+app = FastAPI(title="IncidentLab Lab API", lifespan=lifespan)
 
 
-@app.get("/api/mgmt/health")
+@app.get("/api/lab/health")
 async def health():
     return {"status": "ok"}
 
 
-@app.get("/api/mgmt/cluster")
+@app.get("/api/lab/cluster")
 async def snapshot():
     try:
         return await asyncio.to_thread(cluster.fetch_snapshot)
@@ -63,7 +63,7 @@ class LoadRequest(BaseModel):
     level: int = Field(ge=0, le=MAX_LOAD_LEVEL)
 
 
-@app.post("/api/mgmt/load")
+@app.post("/api/lab/load")
 async def set_load(request: Request, body: LoadRequest):
     header = request.headers.get("authorization", "")
     token = header[7:].strip() if header.startswith("Bearer ") else ""

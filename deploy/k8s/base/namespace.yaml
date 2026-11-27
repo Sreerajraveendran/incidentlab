@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: minicloud
+  name: incidentlab
   labels:
     # Enforce the "baseline" Pod Security level; warn about anything short of "restricted".
     pod-security.kubernetes.io/enforce: baseline

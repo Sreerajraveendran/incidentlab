@@ -17,7 +17,7 @@ export default function App() {
     <main>
       <header className="top">
         <div>
-          <h1>MiniCloud</h1>
+          <h1>IncidentLab</h1>
           <p className="sub">Every view shows real requests and real cluster state</p>
         </div>
         <nav className="tabs" aria-label="Views">

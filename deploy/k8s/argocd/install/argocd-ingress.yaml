@@ -1,4 +1,4 @@
-# Host-based rule: argocd.localhost -> Argo CD UI. (MiniCloud's own Ingress is path-based.)
+# Host-based rule: argocd.localhost -> Argo CD UI. (IncidentLab's own Ingress is path-based.)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

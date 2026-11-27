@@ -9,7 +9,7 @@ const METHODS: Method[] = ["GET", "POST", "PUT", "DELETE"];
 const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const NETWORK_DELAYS = [0, 300, 1000, 2000];
 const KNOWN_INSTANCES = ["app-1", "app-2", "app-3"];
-const TOKEN_KEY = "minicloud.apiToken";
+const TOKEN_KEY = "incidentlab.apiToken";
 
 function readToken(): string {
   try {
@@ -56,12 +56,12 @@ export default function FlowView() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let inFlight: AbortController | null = null;
     // Scheduled after each answer (never overlapping), with a timeout; stops for
-    // good on 404, which means there is no management API (Compose stage).
+    // good on 404, which means there is no Lab API (Compose stage).
     const load = async () => {
       inFlight = new AbortController();
       const abort = setTimeout(() => inFlight?.abort(), 5000);
       try {
-        const res = await fetch("/api/mgmt/cluster", { cache: "no-store", signal: inFlight.signal });
+        const res = await fetch("/api/lab/cluster", { cache: "no-store", signal: inFlight.signal });
         if (res.status === 404) return;
         if (res.ok) {
           const s = (await res.json()) as { pods: { name: string; stage: string }[] };
