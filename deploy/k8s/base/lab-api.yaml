@@ -1,8 +1,20 @@
-# Lab API with least-privilege access: exactly what the visualizer needs.
+# Lab API with least-privilege access: what the visualizer reads, plus exactly
+# the objects the incident scenarios break (lab-api/scenarios/), by name.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: incidentlab-api
+---
+# Incident runs are kept here, not in Postgres: the db-down scenario stops
+# Postgres. Argo CD ignores the data (ignoreDifferences in
+# deploy/k8s/argocd/incidentlab-app.yaml), so a sync never resets a run.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: incidentlab-lab-state
+data:
+  active: ""
+  history: "[]"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -22,6 +34,24 @@ rules:
   - apiGroups: [apps]
     resources: [deployments/scale]
     resourceNames: [incidentlab-loadgen]
+    verbs: [get, patch]
+  # Incident scenarios: read and change only the objects they break.
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [incidentlab-app]
+    verbs: [get, patch]
+  - apiGroups: [apps]
+    resources: [statefulsets, statefulsets/scale]
+    resourceNames: [postgres]
+    verbs: [get, patch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    resourceNames: [incidentlab-app]
+    verbs: [patch]
+  # The run state (see the ConfigMap above).
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [incidentlab-lab-state]
     verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -82,7 +112,7 @@ spec:
             periodSeconds: 10
           resources:
             requests: { cpu: 25m, memory: 96Mi }
-            limits: { cpu: 250m, memory: 192Mi }
+            limits: { cpu: 250m, memory: 256Mi }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }

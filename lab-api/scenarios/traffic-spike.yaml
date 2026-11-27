@@ -1,0 +1,39 @@
+id: traffic-spike
+title: Slow under load
+briefing: >
+  Traffic just increased and the app is getting slow. The autoscaler should add
+  pods, but the pod count stays low. Find out why the system can't scale and fix
+  it, so the load is spread over enough pods.
+time_limit_minutes: 15
+
+inject:
+  - { action: patch_hpa_max, name: incidentlab-app, max: 2 }
+  - { action: set_load, level: 2 }
+
+symptoms:
+  - { check: hpa_at_max, name: incidentlab-app, says: "The autoscaler is at its maximum while CPU is above target" }
+
+recovery:
+  - { check: hpa_max_at_least, name: incidentlab-app, value: 6, label: "The autoscaler may scale to at least 6 pods" }
+  - { check: hpa_replicas_above, name: incidentlab-app, value: 2, label: "It has added pods: more than 2 running" }
+  - { check: deployment_rolled_out, name: incidentlab-app, label: "Every app pod is Ready" }
+
+hints:
+  - "kubectl -n incidentlab get hpa: compare TARGETS (current/target CPU) with REPLICAS and MAXPODS."
+  - "kubectl -n incidentlab describe hpa incidentlab-app: the conditions explain why it is not scaling (look for ScalingLimited)."
+  - "kubectl patch can change one field, for example the HPA's spec.maxReplicas."
+
+root_cause:
+  options:
+    - metrics-server stopped reporting CPU
+    - The worker node is out of memory
+    - The autoscaler's maximum was capped below what the load needs
+    - The load generator sends malformed requests
+  correct: 2
+
+explanation: >
+  The HorizontalPodAutoscaler's maxReplicas was lowered from 6 to 2. CPU stayed
+  far above the 50% target, the HPA computed that it wanted more pods, but the
+  ScalingLimited condition shows it was held at the maximum. Raising
+  maxReplicas lets it scale out again. In production, the limit is a safety
+  belt against runaway cost; set it from measured load, not by guess.

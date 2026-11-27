@@ -1,0 +1,46 @@
+id: bad-deploy
+title: The release that never finished
+briefing: >
+  A new version of the app was just released. The team says the deploy "went
+  out", but it never seems to finish. Find out what is wrong with the release
+  and get the app fully rolled out on a version that works.
+time_limit_minutes: 15
+
+inject:
+  - { action: set_image, name: incidentlab-app, container: app, image: "incidentlab-app:v2-missing" }
+
+symptoms:
+  - check: pod_waiting_reason
+    selector: app=incidentlab-app
+    reasons: [ErrImagePull, ImagePullBackOff]
+    says: New app pods cannot start
+  - check: http_status
+    path: /health/ready
+    status: 200
+    says: "The site still answers: the old pods keep serving because the rollout never removes them before new ones are ready"
+
+recovery:
+  - { check: deployment_image, name: incidentlab-app, container: app, image: "incidentlab-app:dev", label: "The app runs a version that exists (incidentlab-app:dev)" }
+  - { check: deployment_rolled_out, name: incidentlab-app, label: "The rollout is complete: every pod updated and Ready" }
+
+hints:
+  - "Start wide: kubectl -n incidentlab get pods. Which pods are not Running, and what does the STATUS column say?"
+  - "Ask the pod why: kubectl -n incidentlab describe pod <a pod that is not Running>. Read the Events at the bottom."
+  - "kubectl -n incidentlab rollout history deployment/incidentlab-app shows the revisions. kubectl rollout undo goes back to the previous one."
+
+root_cause:
+  options:
+    - The app pods ran out of memory
+    - The new release points at a container image that does not exist
+    - The database rejected the new version
+    - The autoscaler removed the new pods
+  correct: 1
+
+explanation: >
+  The deployment was changed to the image incidentlab-app:v2-missing, which was
+  never built. The kubelet cannot pull it (ErrImagePull, then ImagePullBackOff
+  as it backs off between retries). Because the rollout uses maxUnavailable: 0,
+  Kubernetes keeps the old pods until new ones are Ready, so users saw no
+  outage: the deploy was stuck, not the site down. "kubectl rollout undo" goes
+  back to the last working revision; in a GitOps setup the lasting fix is to
+  revert the change in Git.
