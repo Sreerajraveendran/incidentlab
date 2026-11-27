@@ -3,7 +3,7 @@ import { describe, formula } from "./derive";
 import type { Hpa, Pod, Snapshot } from "./types";
 
 const hpa = (over: Partial<Hpa> = {}): Hpa => ({
-  name: "minicloud-app",
+  name: "incidentlab-app",
   min_replicas: 2,
   max_replicas: 6,
   target_cpu_pct: 50,
@@ -19,7 +19,7 @@ const hpa = (over: Partial<Hpa> = {}): Hpa => ({
 const pod = (name: string, stage: string): Pod => ({
   name,
   stage,
-  node: "minicloud-worker",
+  node: "incidentlab-worker",
   ip: null,
   created: null,
   conditions: {},
@@ -32,7 +32,7 @@ const pod = (name: string, stage: string): Pod => ({
 
 const snap = (h: Hpa, pods: Pod[] = [pod("a", "Ready"), pod("b", "Ready")]): Snapshot => ({
   as_of: "",
-  namespace: "minicloud",
+  namespace: "incidentlab",
   metrics_available: true,
   nodes: [],
   pods,

@@ -1,18 +1,18 @@
-# Argo CD Application: keep namespace "minicloud" in sync with deploy/k8s/base on GitHub.
+# Argo CD Application: keep namespace "incidentlab" in sync with deploy/k8s/base on GitHub.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: minicloud
+  name: incidentlab
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://github.com/Sreerajraveendran/minicloud.git
+    repoURL: https://github.com/Sreerajraveendran/incidentlab.git
     targetRevision: main
     path: deploy/k8s/base
   destination:
     server: https://kubernetes.default.svc
-    namespace: minicloud
+    namespace: incidentlab
   syncPolicy:
     automated:
       prune: true # deleted from Git -> deleted from the cluster
@@ -30,7 +30,7 @@ spec:
     # The dashboard's load buttons scale the load generator.
     - group: apps
       kind: Deployment
-      name: minicloud-loadgen
+      name: incidentlab-loadgen
       jsonPointers: [/spec/replicas]
     # k8s-up.ps1 restarts pods after loading new images.
     - group: apps

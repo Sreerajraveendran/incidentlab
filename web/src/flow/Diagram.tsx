@@ -34,8 +34,8 @@ export default function Diagram({ steps, index, progress, instances, activeInsta
   // Up to ~6 instances fit; spacing shrinks as the autoscaler adds pods.
   const gap = Math.min(76, 330 / Math.max(1, instances.length));
   const slot = (i: number) => H / 2 + (i - (instances.length - 1) / 2) * gap;
-  // "minicloud-app-66465d759c-dmjlj" -> "pod dmjlj"; Compose names stay as they are.
-  const label = (name: string) => name.replace(/^minicloud-app-[a-z0-9]+-/, "pod ");
+  // "incidentlab-app-66465d759c-dmjlj" -> "pod dmjlj"; Compose names stay as they are.
+  const label = (name: string) => name.replace(/^incidentlab-app-[a-z0-9]+-/, "pod ");
   const appBox = (name: string): Box => ({
     x: APP_X,
     y: slot(Math.max(0, instances.indexOf(name))),

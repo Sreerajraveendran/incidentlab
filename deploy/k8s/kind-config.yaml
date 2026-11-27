@@ -1,8 +1,8 @@
-# kind cluster for MiniCloud: 1 control-plane + 1 worker (fits 8 GB RAM).
+# kind cluster for IncidentLab: 1 control-plane + 1 worker (fits 8 GB RAM).
 # Nodes are Docker containers; pods run inside them on containerd.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: minicloud
+name: incidentlab
 nodes:
   - role: control-plane
   - role: worker

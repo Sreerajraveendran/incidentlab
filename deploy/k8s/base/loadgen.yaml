@@ -4,14 +4,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: minicloud-loadgen
+  name: incidentlab-loadgen
 spec:
   replicas: 0
   selector:
-    matchLabels: { app: minicloud-loadgen }
+    matchLabels: { app: incidentlab-loadgen }
   template:
     metadata:
-      labels: { app: minicloud-loadgen }
+      labels: { app: incidentlab-loadgen }
     spec:
       # Load should stop promptly when the dashboard switches to Off.
       terminationGracePeriodSeconds: 2
@@ -20,7 +20,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: loadgen
-          image: minicloud-app:dev
+          image: incidentlab-app:dev
           imagePullPolicy: IfNotPresent
           command: ["python", "-m", "app.loadgen"]
           env:

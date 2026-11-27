@@ -1,4 +1,4 @@
-// Shape of GET /api/mgmt/cluster (mgmt-api/app/cluster.py).
+// Shape of GET /api/lab/cluster (lab-api/app/cluster.py).
 
 export type PodStage = "Pending" | "ContainerCreating" | "Running" | "Ready" | "Terminating" | string;
 

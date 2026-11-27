@@ -6,7 +6,7 @@ import type { Pod, Sample, Snapshot } from "./types";
 const POLL_MS = 2000;
 const HISTORY_S = 300;
 const GONE_MS = 4000; // how long a removed pod stays on screen, fading out
-const TOKEN_KEY = "minicloud.apiToken";
+const TOKEN_KEY = "incidentlab.apiToken";
 // Requests/s per level and the pod count to expect. Estimates from a measured
 // ~32m CPU per req/s against the HPA's 50m-per-pod target.
 const LEVELS = [
@@ -16,13 +16,13 @@ const LEVELS = [
   { label: "Heavy", hint: "12 req/s · 6 pods (max)" },
 ];
 
-// "not-k8s": no management API at all (404, e.g. the Compose stage).
+// "not-k8s": no Lab API at all (404, e.g. the Compose stage).
 // "error": the API exists but the latest poll failed (it may recover).
 type Status = "loading" | "ok" | "not-k8s" | "error";
 
 const POLL_TIMEOUT_MS = 5000;
 
-// mgmt-api answers 503 with {"error": ..., "detail": ...}; show the detail.
+// lab-api answers 503 with {"error": ..., "detail": ...}; show the detail.
 async function describeFailure(res: Response): Promise<string> {
   try {
     const body = await res.json();
@@ -56,7 +56,7 @@ function PodCard({ pod, now }: { pod: Pod & { gone?: boolean }; now: number }) {
   const pct = pod.cpu_pct_of_request;
   return (
     <div className={`pod tone-${stageTone(stage)}`} title={pod.ip ?? ""}>
-      <div className="pod-name">{pod.name.replace(/^minicloud-app-/, "")}</div>
+      <div className="pod-name">{pod.name.replace(/^incidentlab-app-/, "")}</div>
       <div className="pod-stage">{pod.gone ? "removed" : pod.stage}</div>
       <div className="pod-cpu" aria-label="CPU against request">
         <span className="bar">
@@ -97,7 +97,7 @@ export default function AutoscaleView() {
       inFlight = new AbortController();
       const abort = setTimeout(() => inFlight?.abort(), POLL_TIMEOUT_MS);
       try {
-        const res = await fetch("/api/mgmt/cluster", { cache: "no-store", signal: inFlight.signal });
+        const res = await fetch("/api/lab/cluster", { cache: "no-store", signal: inFlight.signal });
         if (res.status === 404) {
           if (!stop) setStatus("not-k8s");
           return; // nothing to poll on this stack
@@ -165,7 +165,7 @@ export default function AutoscaleView() {
   async function setLoad(level: number) {
     setBusy(true);
     try {
-      const res = await fetch("/api/mgmt/load", {
+      const res = await fetch("/api/lab/load", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ level }),
@@ -198,8 +198,8 @@ export default function AutoscaleView() {
       <section className="panel">
         <h2>Cluster state unavailable</h2>
         <p>
-          The management API didn't answer. Retrying every {POLL_MS / 1000} s. Check it with{" "}
-          <code>kubectl -n minicloud get pods</code>.
+          The Lab API didn't answer. Retrying every {POLL_MS / 1000} s. Check it with{" "}
+          <code>kubectl -n incidentlab get pods</code>.
         </p>
         <p className="failed">{pollError}</p>
       </section>
@@ -301,7 +301,7 @@ export default function AutoscaleView() {
         </div>
         <p className="hint">
           Bars show each pod's CPU against its 100m request (full bar = the 250m limit). Terminal:{" "}
-          <code>kubectl -n minicloud get pods -w</code> and <code>kubectl -n minicloud get hpa -w</code>
+          <code>kubectl -n incidentlab get pods -w</code> and <code>kubectl -n incidentlab get hpa -w</code>
         </p>
       </section>
 

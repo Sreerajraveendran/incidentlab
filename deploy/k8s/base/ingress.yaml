@@ -3,26 +3,26 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: minicloud
+  name: incidentlab
 spec:
   ingressClassName: nginx # handled by the ingress-nginx controller (deploy/k8s/ingress-nginx)
   rules:
     - http:
         paths:
-          # Longest prefix wins, so /api/mgmt goes to the management API, not the app.
-          - path: /api/mgmt
+          # Longest prefix wins, so /api/lab goes to the Lab API, not the app.
+          - path: /api/lab
             pathType: Prefix
             backend:
-              service: { name: minicloud-mgmt-api, port: { number: 8000 } }
+              service: { name: incidentlab-api, port: { number: 8000 } }
           - path: /api
             pathType: Prefix
             backend:
-              service: { name: minicloud-app, port: { number: 8000 } }
+              service: { name: incidentlab-app, port: { number: 8000 } }
           - path: /health
             pathType: Prefix
             backend:
-              service: { name: minicloud-app, port: { number: 8000 } }
+              service: { name: incidentlab-app, port: { number: 8000 } }
           - path: /
             pathType: Prefix
             backend:
-              service: { name: minicloud-web, port: { number: 8080 } }
+              service: { name: incidentlab-web, port: { number: 8080 } }

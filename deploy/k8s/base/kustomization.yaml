@@ -1,11 +1,11 @@
-namespace: minicloud
+namespace: incidentlab
 resources:
   - namespace.yaml
   - postgres.yaml
   - redis.yaml
   - app.yaml
   - web.yaml
-  - mgmt-api.yaml
+  - lab-api.yaml
   - loadgen.yaml
   - ingress.yaml
 configMapGenerator:
@@ -13,4 +13,4 @@ configMapGenerator:
     files: [01-databases.sh=postgres-init.sh]
 # No secretGenerator: Argo CD builds this folder from GitHub, where secrets.env
 # (git-ignored) doesn't exist. scripts/k8s-up.ps1 creates the Secret
-# "minicloud-secrets" from deploy/k8s/base/secrets.env instead.
+# "incidentlab-secrets" from deploy/k8s/base/secrets.env instead.

@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $compose = Join-Path $PSScriptRoot "..\deploy\compose"
 $traffic = Join-Path $PSScriptRoot "traffic.ps1"
 
-$answer = Read-Host "Stop $Instance in the local MiniCloud Compose stack? Type the instance name to confirm"
+$answer = Read-Host "Stop $Instance in the local IncidentLab Compose stack? Type the instance name to confirm"
 if ($answer -ne $Instance) { "Cancelled."; exit 1 }
 
 Push-Location $compose

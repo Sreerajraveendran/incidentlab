@@ -1,4 +1,4 @@
-"""MiniCloud sample application.
+"""IncidentLab sample application.
 
 The service the platform hosts and load-balances. Every response carries the
 instance that served it, so traffic distribution can be observed instead of
@@ -53,7 +53,7 @@ async def lifespan(_: FastAPI):
     await db.close_pool()
 
 
-app = FastAPI(title="MiniCloud sample app", version=APP_VERSION, lifespan=lifespan)
+app = FastAPI(title="IncidentLab sample app", version=APP_VERSION, lifespan=lifespan)
 
 
 @app.middleware("http")

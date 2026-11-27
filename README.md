@@ -1,33 +1,50 @@
-# MiniCloud
+# IncidentLab
 
-A local lab for learning Docker and Kubernetes: a sample app run as several
-replicas behind a load balancer, with a dashboard that shows which instance
-served each request. Everything runs on one Windows laptop (WSL 2 + Docker
-Desktop); nothing here costs money.
+**A flight simulator for on-call engineers.** IncidentLab runs a small but real
+web system on a local Kubernetes cluster, breaks it on purpose (a bad deploy, a
+database outage, a traffic spike), and lets you find and fix the problem with
+the same tools you'd use at work: `kubectl`, logs, metrics, Argo CD. The lab
+then checks that the system really recovered, scores the run and keeps a
+postmortem.
+
+Everything runs on one Windows laptop (WSL 2 + Docker Desktop, 8 GB RAM);
+nothing here costs money. Formerly **MiniCloud**: the MiniCloud app is now the
+*target app*, the system that gets broken.
 
 How it is built: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-Design and roadmap: [MiniCloud case study](https://claude.ai/artifact/Xzz79Pa1g7zyx7RnqY16wS).
+Design and roadmap: [IncidentLab case study](https://claude.ai/artifact/Xzz79Pa1g7zyx7RnqY16wS).
 
 ## Status
 
-| Stage | Scope | State |
+What exists today (the foundation):
+
+| Area | Scope | State |
 | --- | --- | --- |
-| 1 | Docker fundamentals: multi-stage images, non-root, healthchecks, signals | Done |
-| 2 | Compose + NGINX load balancing, Redis cache, persistence, request-flow visualizer, traffic-split view, failure drill | Done |
-| 3 | CI: lint, tests, Compose smoke test + drill, image build, Trivy scan, GHCR push | Done (runs once pushed to GitHub) |
-| 4–5 (part) | kind cluster, probes, resources, HPA + metrics-server, management API with RBAC, load generator, autoscaling visualizer | Done |
-| 4–8 (rest) | Gateway API, Kubernetes depth labs, Prometheus, release + DR, review | Not started |
+| Docker | multi-stage images, non-root, healthchecks, signals | Done |
+| Compose | NGINX load balancing, Redis cache, Postgres, request-flow visualizer, traffic-split view, failure drill | Done |
+| CI | lint, tests, Compose smoke test + drill, kubeconform, image build, Trivy scan, GHCR push | Done |
+| Kubernetes | kind cluster, probes, resources, HPA + metrics-server, ingress-nginx, Argo CD (GitOps), Lab API with RBAC, load generator, autoscaling visualizer | Done |
+
+Roadmap:
+
+| Milestone | Scope | State |
+| --- | --- | --- |
+| M0 | Stability fixes, rename MiniCloud → IncidentLab | In progress |
+| M1 | Scenario engine in the Lab API: inject → detect → fix → auto-verify; first 3 scenarios (bad deploy, DB down, traffic spike); timeline UI; root-cause declaration | Planned |
+| M2 | Prometheus + Grafana, alerts as the way incidents are detected; more scenarios | Planned |
+| Later | Async orders on Kafka (Redpanda) with KEDA scaling on consumer lag; more microservices (orders, inventory, payment, notification); tracing | Planned |
 
 ## Layout
 
 ```
-app/              sample FastAPI service (load-balanced; traces every request step)
+app/              target app: FastAPI service (load-balanced; traces every request step)
 web/              React dashboard (request flow, autoscaling, traffic split)
-mgmt-api/         management API: the only component with (read-mostly) Kubernetes access
+lab-api/          Lab API: the only component with Kubernetes access (grows into the scenario engine)
 deploy/compose/   Stage A: compose.yaml, NGINX config, Postgres init, Redis
-deploy/k8s/       Stage B: kind config, Kustomize manifests, vendored metrics-server
-scripts/          traffic and drill helpers (PowerShell)
-docs/             drill records and exercise log
+deploy/k8s/       Stage B: kind config, Kustomize manifests, vendored metrics-server,
+                  ingress-nginx and Argo CD
+scripts/          cluster setup, traffic and drill helpers (PowerShell)
+docs/             architecture, drill records and exercise log
 .github/          CI workflow and Dependabot
 ```
 
@@ -54,22 +71,32 @@ copy deploy\k8s\base\secrets.env.example deploy\k8s\base\secrets.env   # change 
 .\scripts\k8s-down.ps1          # delete the cluster (asks first; deletes the Postgres volume)
 ```
 
+`k8s-up.ps1` installs metrics-server, ingress-nginx and Argo CD, then hands the
+app to Argo CD, which deploys `deploy/k8s/base` from the `main` branch on
+GitHub. So a manifest change reaches the cluster when it is merged, not when it
+is saved locally. It is safe to re-run, also after Docker Desktop restarts: it
+starts stopped nodes and repairs the node network if the restart broke it.
+Argo CD's UI is at http://argocd.localhost:8090 (user `admin`; the script prints
+how to get the password).
+
 Open the **Autoscaling** tab and pick a load level. What you watch:
 
-1. Load-generator pods send CPU-heavy requests through the gateway at a fixed
+1. Load-generator pods send CPU-heavy requests through ingress-nginx at a fixed
    rate: Light 4, Medium 6, Heavy 12 requests/s (about 3, 4 and 6 app pods).
    Switching from a higher level to a lower one scales back down.
 2. metrics-server reports pod CPU; the HPA (target 50% of the 100m request,
    2–6 pods) computes `desired = ceil(current × CPU ÷ target)`; the panel shows
    the formula with live numbers and which step of the loop is running.
 3. New pods appear on the worker node: Pending → ContainerCreating → Running →
-   Ready, and only Ready pods get traffic (the gateway resolves a headless
-   Service every 5 s).
+   Ready, and only Ready pods get traffic (ingress-nginx follows the Service's
+   ready endpoints).
 4. Turn load off: CPU drops, a 60 s stabilization window counts down (a demo
    setting; the default is 300 s), then pods turn Terminating and fade out.
 
 The chart keeps the last 5 minutes of CPU and pod count; the event list shows
 `SuccessfulRescale`, `Scheduled`, `Pulled`, `Started`, `Killing` as they happen.
+
+### Stage A: Docker Compose
 
 ```powershell
 cd deploy\compose
@@ -77,7 +104,7 @@ copy .env.example .env      # then change the passwords in .env
 docker compose up -d --build --wait
 ```
 
-Open http://127.0.0.1:8088. The port is set by `MINICLOUD_PORT` in `.env`
+Open http://127.0.0.1:8088. The port is set by `INCIDENTLAB_PORT` in `.env`
 (8080 is often taken on Windows).
 
 ### Request flow view (the main screen)
@@ -126,6 +153,8 @@ Every response carries `X-Pod-Name`, `X-App-Version`, `X-Request-ID` and
 
 ```powershell
 cd app;  python -m venv .venv; .\.venv\Scripts\pip install -r requirements-dev.txt
+.\.venv\Scripts\ruff check .; .\.venv\Scripts\pytest -q
+cd ..\lab-api; python -m venv .venv; .\.venv\Scripts\pip install -r requirements-dev.txt
 .\.venv\Scripts\ruff check .; .\.venv\Scripts\pytest -q
 cd ..\web; npm ci; npm run typecheck; npm test; npm run build
 ```

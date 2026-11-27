@@ -1,4 +1,4 @@
-"""Read-only view of the MiniCloud namespace for the autoscaling visualizer.
+"""Read-only view of the IncidentLab namespace for the autoscaling visualizer.
 
 Fetching (Kubernetes API calls) is kept apart from shaping (plain dicts in,
 plain dicts out) so the shaping logic is testable without a cluster.
@@ -7,10 +7,10 @@ plain dicts out) so the shaping logic is testable without a cluster.
 import os
 from datetime import UTC, datetime
 
-NAMESPACE = os.getenv("TARGET_NAMESPACE", "minicloud")
-APP_SELECTOR = os.getenv("APP_SELECTOR", "app=minicloud-app")
-HPA_NAME = os.getenv("HPA_NAME", "minicloud-app")
-LOADGEN_DEPLOYMENT = os.getenv("LOADGEN_DEPLOYMENT", "minicloud-loadgen")
+NAMESPACE = os.getenv("TARGET_NAMESPACE", "incidentlab")
+APP_SELECTOR = os.getenv("APP_SELECTOR", "app=incidentlab-app")
+HPA_NAME = os.getenv("HPA_NAME", "incidentlab-app")
+LOADGEN_DEPLOYMENT = os.getenv("LOADGEN_DEPLOYMENT", "incidentlab-loadgen")
 EVENT_LIMIT = 30
 
 # Dashboard load level -> load-generator pods. Each pod sends LOADGEN_RATE req/s
