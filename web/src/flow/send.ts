@@ -1,3 +1,4 @@
+import { newRequestId } from "../ids";
 import type { AppTrace, FlowRun, Method, Scenario } from "./types";
 
 const WRONG_TOKEN = "not-the-right-token";
@@ -10,7 +11,7 @@ export async function sendFlow(
   scenario: Scenario,
   token: string,
 ): Promise<FlowRun> {
-  const id = crypto.randomUUID().replaceAll("-", "");
+  const id = newRequestId();
   const url = method === "POST" ? "/api/v1/items" : `/api/v1/items/${itemId}`;
   const headers: Record<string, string> = { "X-Trace": "1", "X-Request-ID": id };
   const hasBody = method === "POST" || method === "PUT";

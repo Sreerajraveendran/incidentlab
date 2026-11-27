@@ -1,6 +1,6 @@
 # Load generator. Off by default (0 replicas). The dashboard sets the replica
 # count per level (Off 0, Light 2, Medium 3, Heavy 6); each pod sends RATE req/s.
-# Traffic goes through the gateway, so it takes the same path as real users.
+# Traffic goes through ingress-nginx, so it takes the same path as real users.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,6 +13,8 @@ spec:
     metadata:
       labels: { app: minicloud-loadgen }
     spec:
+      # Load should stop promptly when the dashboard switches to Off.
+      terminationGracePeriodSeconds: 2
       securityContext:
         runAsNonRoot: true
         seccompProfile: { type: RuntimeDefault }

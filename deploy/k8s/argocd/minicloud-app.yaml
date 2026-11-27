@@ -19,6 +19,12 @@ spec:
       selfHeal: true # changed by hand -> changed back to what Git says
     syncOptions:
       - RespectIgnoreDifferences=true
+    # Automated sync does not retry a failed sync of the same Git revision on its
+    # own. Transient failures (an admission webhook or DNS not ready yet after a
+    # Docker restart) would otherwise leave the app failed until the next commit.
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }
   # Runtime changes that are expected, not drift:
   ignoreDifferences:
     # The dashboard's load buttons scale the load generator.

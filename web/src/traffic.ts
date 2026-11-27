@@ -1,3 +1,5 @@
+import { newRequestId } from "./ids";
+
 // One measured request as seen by the browser, through the load balancer.
 export interface Sample {
   requestId: string;
@@ -49,7 +51,7 @@ export function tally(samples: Sample[]): Tally {
 }
 
 export async function measure(path: string): Promise<Sample> {
-  const requestId = crypto.randomUUID().replaceAll("-", "");
+  const requestId = newRequestId();
   const start = performance.now();
   try {
     const res = await fetch(path, { headers: { "X-Request-ID": requestId }, cache: "no-store" });
