@@ -45,36 +45,34 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 2
             failureThreshold: 30
+          # A pod busy with /api/v1/cpu work can take over 1 s (the default timeout)
+          # to answer. Readiness may briefly drop it from the rotation; liveness must
+          # not restart it, so liveness gets a longer timeout and more failures
+          # (5 s x 6 = about a minute of no answer before a restart).
           readinessProbe:
             httpGet: { path: /health/ready, port: http }
             periodSeconds: 3
+            timeoutSeconds: 2
           livenessProbe:
             httpGet: { path: /health/live, port: http }
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           lifecycle:
-            # Give the gateway time to stop routing here before shutdown starts.
+            # Give ingress-nginx time to stop routing here before shutdown starts.
             preStop:
               exec: { command: ["sleep", "5"] }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
 ---
-# Regular Service: one stable virtual IP, balanced per connection by kube-proxy.
+# The app's Service. ingress-nginx reads its EndpointSlices (ready pods only)
+# and balances per request across the pod IPs.
 apiVersion: v1
 kind: Service
 metadata:
   name: minicloud-app
 spec:
-  selector: { app: minicloud-app }
-  ports: [{ name: http, port: 8000, targetPort: http }]
----
-# Headless Service: DNS returns each ready pod's IP; the gateway balances per request.
-apiVersion: v1
-kind: Service
-metadata:
-  name: minicloud-app-pods
-spec:
-  clusterIP: None
   selector: { app: minicloud-app }
   ports: [{ name: http, port: 8000, targetPort: http }]
 ---

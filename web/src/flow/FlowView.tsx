@@ -53,21 +53,32 @@ export default function FlowView() {
   const [clusterPods, setClusterPods] = useState<string[] | null>(null);
   useEffect(() => {
     let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight: AbortController | null = null;
+    // Scheduled after each answer (never overlapping), with a timeout; stops for
+    // good on 404, which means there is no management API (Compose stage).
     const load = async () => {
+      inFlight = new AbortController();
+      const abort = setTimeout(() => inFlight?.abort(), 5000);
       try {
-        const res = await fetch("/api/mgmt/cluster", { cache: "no-store" });
-        if (!res.ok) return;
-        const s = (await res.json()) as { pods: { name: string; stage: string }[] };
-        if (!stop) setClusterPods(s.pods.filter((p) => p.stage !== "Terminating").map((p) => p.name));
+        const res = await fetch("/api/mgmt/cluster", { cache: "no-store", signal: inFlight.signal });
+        if (res.status === 404) return;
+        if (res.ok) {
+          const s = (await res.json()) as { pods: { name: string; stage: string }[] };
+          if (!stop) setClusterPods(s.pods.filter((p) => p.stage !== "Terminating").map((p) => p.name));
+        }
       } catch {
-        /* not on Kubernetes */
+        /* transient failure: keep the last pod list and try again */
+      } finally {
+        clearTimeout(abort);
       }
+      if (!stop) timer = setTimeout(load, 5000);
     };
     load();
-    const id = setInterval(load, 5000);
     return () => {
       stop = true;
-      clearInterval(id);
+      clearTimeout(timer);
+      inFlight?.abort();
     };
   }, []);
 
@@ -80,11 +91,16 @@ export default function FlowView() {
 
   async function send() {
     setSending(true);
-    const r = await sendFlow(method, itemId, body, scenario, token);
+    let r;
+    try {
+      r = await sendFlow(method, itemId, body, scenario, token);
+    } finally {
+      // Never leave the Send button stuck disabled.
+      setSending(false);
+    }
     setRuns((prev) => [r, ...prev].slice(0, 12));
     setSelected(r.id);
     setTab("step");
-    setSending(false);
     // A successful create gives us an id to read back next.
     const created = (r.response?.body as { result?: { id?: number } } | null)?.result?.id;
     if (method === "POST" && r.response?.status === 201 && created) {

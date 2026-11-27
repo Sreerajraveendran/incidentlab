@@ -22,9 +22,13 @@ export default function TrafficView() {
   async function send() {
     setRunning(true);
     setSamples([]);
-    await run(endpoint, count, concurrency, (s) => setSamples((prev) => [...prev, s]));
-    setRunning(false);
-    setFinishedAt(Date.now());
+    try {
+      await run(endpoint, count, concurrency, (s) => setSamples((prev) => [...prev, s]));
+    } finally {
+      // Never leave the Send button stuck disabled.
+      setRunning(false);
+      setFinishedAt(Date.now());
+    }
   }
 
   return (

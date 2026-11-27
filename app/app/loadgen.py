@@ -11,55 +11,79 @@ one pod saturate every replica, and the HPA could never scale down.)
 """
 
 import os
+import signal
 import threading
 import time
-import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-TARGET_URL = os.getenv("TARGET_URL", "http://minicloud-gateway/api/v1/cpu?ms=50")
-RATE = float(os.getenv("RATE", "2"))  # requests per second from this pod
-MAX_IN_FLIGHT = int(os.getenv("MAX_IN_FLIGHT", "20"))
+DEFAULT_TARGET = "http://ingress-nginx-controller.ingress-nginx.svc.cluster.local/api/v1/cpu?ms=50"
 REPORT_EVERY_S = 10
 
 lock = threading.Lock()
 counts = {"ok": 0, "failed": 0, "skipped": 0}
 in_flight = 0
+stopping = threading.Event()
 
 
-def one_request() -> None:
+def read_config() -> tuple[str, float, int]:
+    target = os.getenv("TARGET_URL", DEFAULT_TARGET)
+    rate = float(os.getenv("RATE", "2"))  # requests per second from this pod
+    max_in_flight = int(os.getenv("MAX_IN_FLIGHT", "20"))
+    if rate <= 0:
+        raise SystemExit(f"loadgen: RATE must be > 0, got {rate}")
+    if max_in_flight < 1:
+        raise SystemExit(f"loadgen: MAX_IN_FLIGHT must be >= 1, got {max_in_flight}")
+    return target, rate, max_in_flight
+
+
+def one_request(url: str) -> None:
     global in_flight
+    key = "failed"
     try:
-        with urllib.request.urlopen(TARGET_URL, timeout=10) as r:
+        with urllib.request.urlopen(url, timeout=10) as r:
             r.read()
         key = "ok"
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        key = "failed"
+    except Exception:
+        # Any failure (refused, timeout, HTTP error, truncated body) counts as
+        # failed. Catching everything matters: an escaped exception would skip
+        # the release below and the in-flight slot would leak for good.
+        pass
+    finally:
+        with lock:
+            counts[key] += 1
+            in_flight -= 1
+
+
+def try_acquire(max_in_flight: int) -> bool:
+    """Reserve an in-flight slot; when the target can't keep up, skip instead."""
+    global in_flight
     with lock:
-        counts[key] += 1
-        in_flight -= 1
+        if in_flight >= max_in_flight:
+            counts["skipped"] += 1
+            return False
+        in_flight += 1
+        return True
 
 
 def main() -> None:
-    global in_flight
-    print(f"loadgen: {RATE} req/s -> {TARGET_URL}", flush=True)
-    pool = ThreadPoolExecutor(max_workers=MAX_IN_FLIGHT)
-    interval = 1 / RATE
+    target, rate, max_in_flight = read_config()
+    # This process is PID 1 in its container, and PID 1 ignores SIGTERM unless
+    # it installs a handler: without this, "Off" kept load running until the
+    # pod was killed.
+    signal.signal(signal.SIGTERM, lambda *_: stopping.set())
+    signal.signal(signal.SIGINT, lambda *_: stopping.set())
+
+    print(f"loadgen: {rate} req/s -> {target}", flush=True)
+    pool = ThreadPoolExecutor(max_workers=max_in_flight)
+    interval = 1 / rate
     next_at = time.monotonic()
     last_report = next_at
-    while True:
-        with lock:
-            # When the target is too slow to keep up, skip rather than pile up threads.
-            if in_flight >= MAX_IN_FLIGHT:
-                counts["skipped"] += 1
-                start = False
-            else:
-                in_flight += 1
-                start = True
-        if start:
-            pool.submit(one_request)
+    while not stopping.is_set():
+        if try_acquire(max_in_flight):
+            pool.submit(one_request, target)
         next_at += interval
-        time.sleep(max(0.0, next_at - time.monotonic()))
+        stopping.wait(max(0.0, next_at - time.monotonic()))
 
         now = time.monotonic()
         if now - last_report >= REPORT_EVERY_S:
@@ -71,6 +95,9 @@ def main() -> None:
                 flush=True,
             )
             last_report = now
+
+    print("loadgen: stopping", flush=True)
+    pool.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

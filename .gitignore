@@ -29,3 +29,6 @@ loadtest/results/
 # Local tool binaries
 .tools/
 deploy/k8s/base/secrets.env
+
+# Local script logs (can contain secrets)
+*.log
