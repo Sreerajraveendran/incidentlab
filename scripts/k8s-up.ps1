@@ -211,6 +211,8 @@ if ($LASTEXITCODE -ne 0) { kubectl create namespace incidentlab | Out-Null; Chec
 kubectl -n incidentlab create secret generic incidentlab-secrets --from-env-file=$secrets --dry-run=client -o yaml | kubectl apply -f - | Out-Null; Check
 
 Step "Handing IncidentLab to Argo CD (it deploys deploy/k8s/base from GitHub)"
+# Lets the Lab API pause auto-sync during an incident scenario.
+kubectl apply -f (Join-Path $k8s "argocd\lab-api-argocd-rbac.yaml"); Check
 kubectl apply -f (Join-Path $k8s "argocd\incidentlab-app.yaml"); Check
 # Synced first: an app that failed to build has no resources and still reports
 # Healthy. If this times out, see: kubectl -n argocd get application incidentlab -o yaml

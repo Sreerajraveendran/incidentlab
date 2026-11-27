@@ -37,3 +37,7 @@ spec:
       kind: Deployment
       jqPathExpressions:
         - '.spec.template.metadata.annotations."kubectl.kubernetes.io/restartedAt"'
+    # The Lab API keeps incident runs in this ConfigMap's data.
+    - kind: ConfigMap
+      name: incidentlab-lab-state
+      jsonPointers: [/data]

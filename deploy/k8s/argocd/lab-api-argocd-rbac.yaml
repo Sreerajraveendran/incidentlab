@@ -1,0 +1,25 @@
+# Lets the Lab API pause and resume auto-sync of the incidentlab Application
+# during an incident (otherwise self-heal would undo the injected fault, and the
+# user's own kubectl fix). Only that one Application, only get/patch.
+# Lives here, not in deploy/k8s/base: Kustomize there forces every object into
+# namespace incidentlab, but this Role must be in namespace argocd.
+# Applied by scripts/k8s-up.ps1.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: incidentlab-api-pause-sync
+  namespace: argocd
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: [incidentlab]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: incidentlab-api-pause-sync
+  namespace: argocd
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: incidentlab-api-pause-sync }
+subjects:
+  - { kind: ServiceAccount, name: incidentlab-api, namespace: incidentlab }

@@ -1,0 +1,39 @@
+id: db-down
+title: Items won't load
+briefing: >
+  Users report that the item list fails with errors, although the site itself
+  loads. Find out which part of the system is failing and restore service.
+time_limit_minutes: 15
+
+inject:
+  - { action: scale, kind: statefulset, name: postgres, replicas: 0 }
+
+symptoms:
+  - { check: ready_replicas, kind: statefulset, name: postgres, equals: 0, says: "No database pod is running" }
+  - { check: http_status, path: /api/v1/items, status: 503, says: "The item API answers 503 Service Unavailable" }
+  - { check: http_status, path: /health/ready, status: 200, says: "The app pods are still Ready: readiness does not check the database, on purpose" }
+
+recovery:
+  - { check: ready_replicas, kind: statefulset, name: postgres, at_least: 1, label: "A database pod is running and Ready" }
+  - { check: http_status, path: /api/v1/items, status: 200, label: "GET /api/v1/items works again" }
+
+hints:
+  - "Which component answers the 503? Try kubectl -n incidentlab logs deploy/incidentlab-app --tail=20."
+  - "kubectl -n incidentlab get statefulsets: how many replicas should the database have, and how many does it have?"
+  - "kubectl scale changes the replica count of a Deployment or StatefulSet."
+
+root_cause:
+  options:
+    - The app's image is broken
+    - The database has no running instance
+    - Redis is full
+    - The Ingress routes /api to the wrong Service
+  correct: 1
+
+explanation: >
+  The postgres StatefulSet was scaled to 0 replicas, so no database pod existed.
+  The app stayed Ready, because its readiness probe deliberately doesn't check
+  the database (otherwise one database blip would take every pod out of
+  service), and answered 503 only on the requests that need the database.
+  Scaling the StatefulSet back to 1 brings postgres-0 back with its data, since
+  the PersistentVolumeClaim outlives the pod.

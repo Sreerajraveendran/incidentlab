@@ -52,7 +52,8 @@ jobs:
       - name: Validate against the Kubernetes schemas
         run: |
           docker run --rm -v "$PWD:/w" ghcr.io/yannh/kubeconform:v0.6.7 \
-            -strict -summary -kubernetes-version 1.33.0 /w/rendered.yaml /w/metrics-server.yaml
+            -strict -summary -kubernetes-version 1.33.0 /w/rendered.yaml /w/metrics-server.yaml \
+            /w/deploy/k8s/argocd/lab-api-argocd-rbac.yaml
 
   web:
     name: Web · typecheck, test, build
