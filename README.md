@@ -29,8 +29,8 @@ Roadmap:
 
 | Milestone | Scope | State |
 | --- | --- | --- |
-| M0 | Stability fixes, rename MiniCloud → IncidentLab | In progress |
-| M1 | Scenario engine in the Lab API: inject → detect → fix → auto-verify; first 3 scenarios (bad deploy, DB down, traffic spike); timeline UI; root-cause declaration | Planned |
+| M0 | Stability fixes, rename MiniCloud → IncidentLab | Done |
+| M1 | Scenario engine in the Lab API: inject → detect → fix → auto-verify; first 3 scenarios (bad deploy, DB down, traffic spike); timeline UI; root-cause declaration | Done |
 | M2 | Prometheus + Grafana, alerts as the way incidents are detected; more scenarios | Planned |
 | Later | Async orders on Kafka (Redpanda) with KEDA scaling on consumer lag; more microservices (orders, inventory, payment, notification); tracing | Planned |
 
@@ -78,6 +78,34 @@ is saved locally. It is safe to re-run, also after Docker Desktop restarts: it
 starts stopped nodes and repairs the node network if the restart broke it.
 Argo CD's UI is at http://argocd.localhost:8090 (user `admin`; the script prints
 how to get the password).
+
+### Run an incident
+
+Open the **Incidents** tab, paste the API token (`API_TOKEN` in
+`deploy\k8s\base\secrets.env`) once, and start a scenario. Then work in a
+terminal like on call:
+
+```powershell
+kubectl -n incidentlab get pods          # what is not Running?
+kubectl -n incidentlab describe pod <name>
+kubectl -n incidentlab get events --sort-by=.lastTimestamp
+kubectl -n incidentlab logs deploy/incidentlab-app --tail=30
+```
+
+While the incident runs, Argo CD auto-sync is paused (otherwise it would undo
+the fault, and your fix). The tab shows the recovery checks, which the lab
+evaluates every 5 s against the real cluster; when all pass for 15 s the
+incident is resolved. Then name the root cause for 20 extra points. Hints cost
+10 points each. Giving up, or the 15-minute limit, resumes Argo CD, which
+restores everything from Git.
+
+| Scenario | What you see |
+| --- | --- |
+| The release that never finished | A deploy that never completes; the site still works |
+| Items won't load | The item API answers 503, the pods look healthy |
+| Slow under load | CPU high, but the pod count doesn't grow |
+
+### Watch autoscaling
 
 Open the **Autoscaling** tab and pick a load level. What you watch:
 

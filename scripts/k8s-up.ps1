@@ -70,9 +70,22 @@ function Test-PodDns {
     $out = kubectl run netcheck --rm -i --restart=Never --quiet `
         --image=incidentlab-app:dev --image-pull-policy=Never --pod-running-timeout=60s `
         --command -- python -c "import socket; socket.gethostbyname('kubernetes.default.svc.cluster.local'); print('dns-ok')" 2>&1
-    if ($out -match "dns-ok") { return $true }
     if ($out -match "ErrImageNeverPull|not found|ImagePull") { return $null }
-    return $false
+    if ($out -notmatch "dns-ok") { return $false }
+    # Pods with a NetworkPolicy (all of Argo CD's) can lose DNS on their own:
+    # when kindnet's policy engine falls behind (an overloaded API server), it
+    # drops their DNS answers while pods without a policy still resolve. Test
+    # from Argo CD's controller too, once Argo CD is installed.
+    kubectl -n argocd get pod argocd-application-controller-0 *> $null
+    if ($LASTEXITCODE -eq 0) {
+        kubectl -n argocd exec argocd-application-controller-0 -- `
+            sh -c "timeout 8 getent hosts kubernetes.default.svc.cluster.local" *> $null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  DNS fails inside Argo CD (pods with a NetworkPolicy)"
+            return $false
+        }
+    }
+    return $true
 }
 
 # Docker can give the node containers different IPs after a restart (they can
@@ -93,6 +106,16 @@ function Repair-ControlPlaneKubelet {
     }
 }
 
+# After a network repair, Argo CD's controller can stay stuck retrying lookups
+# that failed during the outage (gRPC back-off); a restart clears it.
+function Restart-ArgoController {
+    kubectl -n argocd get statefulset argocd-application-controller *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Restarting Argo CD's application controller after the repair."
+        kubectl -n argocd rollout restart statefulset/argocd-application-controller | Out-Null
+    }
+}
+
 # Restarting the network components makes them rebuild routes and connection
 # state. A workaround: the root cause of kind losing this state is unknown.
 function Repair-ClusterNetwork {
@@ -102,6 +125,7 @@ function Repair-ClusterNetwork {
         if ($routesOk -and $dns -ne $false) {
             if ($null -eq $dns) { Write-Warning "Could not run the DNS check (app image not in the nodes yet); routes are fine." }
             else { Write-Host "Cluster network OK (routes + DNS)." }
+            if ($attempt -gt 1) { Restart-ArgoController }
             return
         }
         Write-Warning "Cluster network is broken (attempt $attempt): restarting kindnet, kube-proxy and CoreDNS..."
@@ -117,6 +141,7 @@ function Repair-ClusterNetwork {
         throw "The cluster network is still broken. Recreate the cluster: scripts\k8s-down.ps1, then run this script again."
     }
     Write-Host "Cluster network repaired."
+    Restart-ArgoController
 }
 
 Step "Checking Docker"

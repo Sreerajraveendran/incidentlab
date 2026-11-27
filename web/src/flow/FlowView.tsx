@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buildSteps, NODE_LABEL, statusTone } from "./buildSteps";
 import Diagram from "./Diagram";
 import { sendFlow } from "./send";
+import { useToken } from "../token";
 import type { FlowRun, Method, Scenario } from "./types";
 import { usePlayback } from "./usePlayback";
 
@@ -9,15 +10,7 @@ const METHODS: Method[] = ["GET", "POST", "PUT", "DELETE"];
 const SPEEDS = [0.25, 0.5, 1, 2, 4];
 const NETWORK_DELAYS = [0, 300, 1000, 2000];
 const KNOWN_INSTANCES = ["app-1", "app-2", "app-3"];
-const TOKEN_KEY = "incidentlab.apiToken";
 
-function readToken(): string {
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
 
 function Value({ value }: { value: unknown }) {
   if (value === null || value === undefined) return <span className="muted">—</span>;
@@ -29,20 +22,13 @@ export default function FlowView() {
   const [method, setMethod] = useState<Method>("GET");
   const [itemId, setItemId] = useState(1);
   const [body, setBody] = useState('{"name": "hello from the visualizer"}');
-  const [token, setToken] = useState(readToken);
+  const [token, setToken] = useToken();
   const [scenario, setScenario] = useState<Scenario>({ auth: "valid", cache: "auto", dbError: false, networkMs: 0 });
   const [runs, setRuns] = useState<FlowRun[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [tab, setTab] = useState<"step" | "request" | "response">("step");
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(TOKEN_KEY, token);
-    } catch {
-      /* storage unavailable: token lives for this page only */
-    }
-  }, [token]);
 
   const run = runs.find((r) => r.id === selected) ?? null;
   const steps = useMemo(() => (run ? buildSteps(run) : []), [run]);

@@ -433,6 +433,12 @@ open-model generator fixed that.
 | `GET /api/lab/health` | none | `{"status":"ok"}` (readiness probe) |
 | `GET /api/lab/cluster` | none (localhost lab) | Snapshot: nodes, app pods (stage, node, CPU vs request, memory, restarts), HPA status, load level, load pods and req/s, last 30 events |
 | `POST /api/lab/load` `{"level":0-3}` | Bearer token | Sets `incidentlab-loadgen` to 0 / 2 / 3 / 6 pods; writes an audit log line |
+| `GET /api/lab/scenarios` | none | The incident scenarios: title, briefing, time limit, hint count (no hints, no answers) |
+| `GET /api/lab/runs`, `GET /api/lab/runs/{id}` | none | The active run and the last 30 finished runs: state, timeline, recovery checks, hints used, score |
+| `POST /api/lab/runs` `{"scenario_id"}` | Bearer token | Starts an incident; 409 while another one runs |
+| `POST /api/lab/runs/{id}/hint` | Bearer token | Reveals the next hint (−10 points) |
+| `POST /api/lab/runs/{id}/abort` | Bearer token | Gives up: cleanup restores the system from Git |
+| `POST /api/lab/runs/{id}/root-cause` `{"choice"}` | Bearer token | After resolution: the root-cause answer (+20 if right) |
 
 Fetching (Kubernetes calls) and shaping (plain dict → dict) are separate, so
 the shaping is unit-tested without a cluster. Missing metrics come back as
@@ -446,10 +452,67 @@ the shaping is unit-tested without a cluster. Missing metrics come back as
 | | autoscaling | horizontalpodautoscalers | get, list, watch |
 | | metrics.k8s.io | pods | get, list |
 | | apps | deployments/scale, **only** `incidentlab-loadgen` | get, patch |
+| | apps | deployments, **only** `incidentlab-app` | get, patch |
+| | apps | statefulsets, statefulsets/scale, **only** `postgres` | get, patch |
+| | autoscaling | horizontalpodautoscalers, **only** `incidentlab-app` | patch |
+| | core | configmaps, **only** `incidentlab-lab-state` | get, patch |
+| Role (namespace `argocd`) | argoproj.io | applications, **only** `incidentlab` | get, patch |
 | ClusterRole | core | nodes | get, list |
 
-It cannot delete pods, change the app Deployment, read Secrets, or touch any
-other namespace. The browser never talks to Kubernetes directly.
+The scenario rules name each object, so the Lab API can break exactly what the
+scenarios break and nothing else: it cannot touch the web or Redis
+Deployments, delete anything, read Secrets, or change other Argo CD
+Applications. The `argocd` Role lives in `deploy/k8s/argocd/`, because
+Kustomize forces every object in `deploy/k8s/base` into namespace
+`incidentlab`. The browser never talks to Kubernetes directly.
+
+### Scenario engine (`lab-api/app/engine.py`)
+
+An incident run moves through these states:
+
+```mermaid
+stateDiagram-v2
+  [*] --> injecting: POST /runs
+  injecting --> active: Argo CD auto-sync paused, fault injected
+  active --> cleanup: recovery checks pass 3 ticks in a row (resolved)
+  active --> cleanup: give up, or time limit (aborted)
+  cleanup --> resolved: load off, Argo CD auto-sync resumed
+  cleanup --> aborted
+  resolved --> [*]
+  aborted --> [*]
+```
+
+- **Why Argo CD is paused.** With self-heal on, Argo CD would undo the
+  injected fault within seconds, and would also undo the user's own `kubectl`
+  fix. The engine sets `spec.syncPolicy.automated.enabled: false` on the
+  Application for the run and sets it back in cleanup. Resuming makes Git the
+  truth again: anything the fix left different is reverted (this is also how
+  "give up" restores the system).
+- **Scenarios are YAML** (`lab-api/scenarios/`) built from a fixed vocabulary:
+  actions `set_image`, `scale`, `patch_hpa_max`, `set_load`; checks
+  `ready_replicas`, `pod_waiting_reason`, `deployment_rolled_out`,
+  `deployment_image`, `hpa_max_at_least`, `hpa_replicas_above`, `hpa_at_max`,
+  `http_status`. A file can only combine these; an invalid file stops the Lab
+  API at startup.
+- **A tick every 5 s** records each symptom the first time it shows and
+  evaluates the recovery checks against the real cluster (and, for
+  `http_status`, the app's Service). All passing on 3 ticks in a row (15 s)
+  resolves the run, so a fix that flaps doesn't count.
+- **Score:** 100, minus 1 per 30 s after the first 2 minutes, minus 10 per
+  hint, at least 10; +20 for the right root cause.
+- **State is kept in the ConfigMap `incidentlab-lab-state`**, not in Postgres:
+  the db-down scenario stops Postgres, and incident tooling must not depend on
+  the system under test. The ConfigMap lives in etcd and survives Lab API
+  restarts, so a run continues after one. Argo CD ignores its data
+  (`ignoreDifferences`).
+- **Cleanup is retried every tick** until Argo CD is resumed; the dashboard
+  shows the error and the manual `kubectl patch` meanwhile.
+
+| Scenario | Fault | Recovered when | Typical fix |
+| --- | --- | --- | --- |
+| `bad-deploy` | App image set to a tag that doesn't exist | Image is `incidentlab-app:dev` and the rollout is complete | `kubectl rollout undo deployment/incidentlab-app` |
+| `db-down` | `postgres` StatefulSet scaled to 0 | A database pod is Ready and `GET /api/v1/items` returns 200 | `kubectl scale statefulset postgres --replicas=1` |
+| `traffic-spike` | HPA `maxReplicas` 6 → 2, then Medium load | `maxReplicas >= 6`, more than 2 pods, all Ready | `kubectl patch hpa incidentlab-app -p '{"spec":{"maxReplicas":6}}'` |
 
 ---
 
@@ -460,12 +523,16 @@ so no CORS. No component or state libraries; diagrams and charts are plain SVG.
 
 | View | Source | Updates | What it shows |
 | --- | --- | --- | --- |
+| **Incidents** (`src/incidents/`) | `GET /api/lab/runs` | Every 3 s | Scenario cards; during a run: briefing, clock and time left, Argo CD "paused" badge, recovery checks ✓/✗, hints, give up, live timeline; afterwards: root-cause question, explanation, score breakdown, history |
 | **Request flow** (`src/flow/`) | One real request with `X-Trace: 1` | On send | Animated packet through Browser → load balancer → instance → Cache / DB → back. Play / pause / step / restart, speed 0.25×–4×. Inspector (step details, request, response), processing log, history of 12 runs. On Kubernetes, the instance column is the live pod list (every 5 s). |
 | **Autoscaling** (`src/scale/`) | `GET /api/lab/cluster` | Every 2 s | Load buttons; pods inside node boxes, coloured by stage, removed pods fading out; HPA phase in words, formula with live numbers, highlighted loop step, scale-down countdown; 5-minute CPU and pod-count chart; event stream |
 | **Traffic split** (`src/TrafficView.tsx`) | Many `GET /api/v1/info` | On send | Requests per instance, failures, last 15 requests |
 
 Key modules:
 
+- `incidents/timeline.ts`: clock, time left, event tones and the score
+  breakdown (matching the engine's formula). Pure, unit-tested.
+- `token.ts`: the API token, shared by every view, kept in this browser.
 - `flow/buildSteps.ts`: turns a run (request, response headers, trace) into
   animation frames. Pure function, unit-tested.
 - `flow/usePlayback.ts`: frame index and progress driven by `requestAnimationFrame`.
@@ -592,8 +659,8 @@ flowchart LR
 | Suite | Location | Count | Covers |
 | --- | --- | --- | --- |
 | App | `app/tests/` | 38 | Health, identity headers, metrics, bounds; load generator (in-flight slot released on every error, RATE validation); item flows against in-memory fakes of Redis and Postgres: hit/miss, forced scenarios, auth, validation, cache-down fallback, scenarios disabled |
-| Lab API | `lab-api/tests/` | 12 | Quantity parsing, pod stages, HPA/node/event shaping, load endpoint auth, 503 when the cluster is unreachable |
-| Web | `web/src/**/*.test.ts` | 27 | Traffic tally, request-flow frame building (hit, miss, DB error, retry, no backend, network error, ingress-nginx without gateway headers), HPA formula and phases |
+| Lab API | `lab-api/tests/` | 39 | Quantity parsing, pod stages, HPA/node/event shaping, load endpoint auth, 503 when the cluster is unreachable; scenario validation; full engine runs against a fake cluster (resolve, flapping, hints, time limit, give up, cleanup retry, restart mid-run, failed injection); every incident command needs the token |
+| Web | `web/src/**/*.test.ts` | 37 | Traffic tally, request-flow frame building (hit, miss, DB error, retry, no backend, network error, ingress-nginx without gateway headers), HPA formula and phases, incident clock, score breakdown and which run to show |
 | Manifests | CI | 34 resources | Schema validation for Kubernetes 1.33 |
 | End to end | CI `compose` job, plus manual runs | — | Load distribution, cache hit after write, 401 without token, zero failures with one instance stopped |
 
@@ -612,6 +679,9 @@ app/                     target app (+ load generator)
   app/db.py              Postgres pool and SQL
   app/loadgen.py         load generator
 lab-api/                 Lab API
+  scenarios/             incident scenarios (YAML)
+  app/engine.py          scenario engine: run states, checks, scoring
+  app/actions.py         what scenarios do to the cluster and how they check it
   app/main.py            endpoints, token check, audit log
   app/cluster.py         Kubernetes reads and shaping
 web/                     dashboard
