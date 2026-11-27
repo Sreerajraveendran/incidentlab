@@ -1,0 +1,15 @@
+# Host-based rule: argocd.localhost -> Argo CD UI. (MiniCloud's own Ingress is path-based.)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: argocd.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: argocd-server, port: { number: 80 } }

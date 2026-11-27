@@ -16,7 +16,23 @@ const LEVELS = [
   { label: "Heavy", hint: "12 req/s · 6 pods (max)" },
 ];
 
-type Status = "loading" | "ok" | "unavailable";
+// "not-k8s": no management API at all (404, e.g. the Compose stage).
+// "error": the API exists but the latest poll failed (it may recover).
+type Status = "loading" | "ok" | "not-k8s" | "error";
+
+const POLL_TIMEOUT_MS = 5000;
+
+// mgmt-api answers 503 with {"error": ..., "detail": ...}; show the detail.
+async function describeFailure(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body?.detail) return `HTTP ${res.status}: ${body.detail}`;
+    if (body?.error) return `HTTP ${res.status}: ${body.error}`;
+  } catch {
+    /* not JSON (e.g. an ingress-nginx error page) */
+  }
+  return `HTTP ${res.status}`;
+}
 
 function readToken(): string {
   try {
@@ -59,7 +75,9 @@ function PodCard({ pod, now }: { pod: Pod & { gone?: boolean }; now: number }) {
 export default function AutoscaleView() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status>("loading");
-  const [error, setError] = useState<string | null>(null);
+  // Kept apart so a successful poll doesn't wipe a load-button message.
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [gone, setGone] = useState<(Pod & { gone: true; at: number })[]>([]);
   const [token, setToken] = useState(readToken);
@@ -70,10 +88,21 @@ export default function AutoscaleView() {
 
   useEffect(() => {
     let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight: AbortController | null = null;
+
+    // Each poll is scheduled only after the previous one finishes, and gives up
+    // after POLL_TIMEOUT_MS, so slow answers never overlap or arrive out of order.
     async function poll() {
+      inFlight = new AbortController();
+      const abort = setTimeout(() => inFlight?.abort(), POLL_TIMEOUT_MS);
       try {
-        const res = await fetch("/api/mgmt/cluster", { cache: "no-store" });
-        if (!res.ok) throw new Error(res.status === 404 ? "not-k8s" : `HTTP ${res.status}`);
+        const res = await fetch("/api/mgmt/cluster", { cache: "no-store", signal: inFlight.signal });
+        if (res.status === 404) {
+          if (!stop) setStatus("not-k8s");
+          return; // nothing to poll on this stack
+        }
+        if (!res.ok) throw new Error(await describeFailure(res));
         const s: Snapshot = await res.json();
         if (stop) return;
         const t = Date.now();
@@ -99,20 +128,28 @@ export default function AutoscaleView() {
         ]);
         setSnap(s);
         setStatus("ok");
-        setError(null);
+        setPollError(null);
       } catch (e) {
         if (stop) return;
-        const msg = e instanceof Error ? e.message : String(e);
-        setStatus(msg === "not-k8s" || msg === "HTTP 503" ? "unavailable" : "ok");
-        setError(msg);
+        const msg =
+          e instanceof DOMException && e.name === "AbortError"
+            ? `no answer within ${POLL_TIMEOUT_MS / 1000} s`
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        setStatus("error");
+        setPollError(msg);
+      } finally {
+        clearTimeout(abort);
       }
+      if (!stop) timer = setTimeout(poll, POLL_MS);
     }
     poll();
-    const id = setInterval(poll, POLL_MS);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       stop = true;
-      clearInterval(id);
+      clearTimeout(timer);
+      inFlight?.abort();
       clearInterval(tick);
     };
   }, []);
@@ -133,8 +170,11 @@ export default function AutoscaleView() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ level }),
       });
-      if (!res.ok) setError(res.status === 401 ? "Load change refused: enter the API token" : `Load change failed: HTTP ${res.status}`);
-      else setError(null);
+      if (res.status === 401) setLoadError("Load change refused: enter the API token");
+      else if (!res.ok) setLoadError(`Load change failed: ${await describeFailure(res)}`);
+      else setLoadError(null);
+    } catch (e) {
+      setLoadError(`Load change failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -143,7 +183,7 @@ export default function AutoscaleView() {
   const f = useMemo(() => (snap ? formula(snap.hpa) : null), [snap]);
   const info = snap ? describe(snap, belowSince.current, now) : null;
 
-  if (status === "unavailable")
+  if (status === "not-k8s")
     return (
       <section className="panel">
         <h2>Autoscaling needs the Kubernetes stage</h2>
@@ -151,10 +191,21 @@ export default function AutoscaleView() {
           Docker Compose has no autoscaler, so there are no new pods to show here. Start the kind cluster with{" "}
           <code>.\scripts\k8s-up.ps1</code> and open <code>http://127.0.0.1:8090</code>.
         </p>
-        <p className="muted">Detail: {error === "not-k8s" ? "no management API on this stack" : error}</p>
       </section>
     );
-  if (!snap) return <p className="empty">Loading cluster state…</p>;
+  if (!snap)
+    return status === "error" ? (
+      <section className="panel">
+        <h2>Cluster state unavailable</h2>
+        <p>
+          The management API didn't answer. Retrying every {POLL_MS / 1000} s. Check it with{" "}
+          <code>kubectl -n minicloud get pods</code>.
+        </p>
+        <p className="failed">{pollError}</p>
+      </section>
+    ) : (
+      <p className="empty">Loading cluster state…</p>
+    );
 
   const workers = snap.nodes;
   const allPods: (Pod & { gone?: boolean })[] = [...snap.pods, ...gone];
@@ -192,7 +243,12 @@ export default function AutoscaleView() {
             <input type="password" value={token} placeholder="API_TOKEN" onChange={(e) => setToken(e.target.value)} />
           </label>
         </div>
-        {error && <p className="failed">{error}</p>}
+        {loadError && <p className="failed">{loadError}</p>}
+        {pollError && (
+          <p className="failed">
+            Showing the last good snapshot ({ago(snap.as_of, now)}); latest update failed: {pollError}
+          </p>
+        )}
       </section>
 
       <section className="panel topo" aria-label="Cluster">

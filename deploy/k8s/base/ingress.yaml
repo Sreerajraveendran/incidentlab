@@ -1,11 +1,11 @@
 # Kubernetes Ingress: HTTP routing rules that the ingress-nginx controller applies.
-# Same routes as the hand-written gateway, but declared as an object.
+# It replaced the hand-written NGINX gateway of the Compose stage, as an object instead of a config file.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: minicloud
 spec:
-  ingressClassName: nginx # which controller handles it (from step 2)
+  ingressClassName: nginx # handled by the ingress-nginx controller (deploy/k8s/ingress-nginx)
   rules:
     - http:
         paths:
